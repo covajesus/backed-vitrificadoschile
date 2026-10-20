@@ -35,6 +35,20 @@ def admin_headers(api: TestClient) -> dict[str, str]:
     return {"Authorization": f"Bearer {response.json()['token']}"}
 
 
+def test_admin_site_can_call_the_login_preflight() -> None:
+    api = client()
+    response = api.options(
+        "/api/auth/login",
+        headers={
+            "Origin": "https://admin.vitrificadoschile.com",
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "content-type",
+        },
+    )
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "https://admin.vitrificadoschile.com"
+
+
 def test_banks_come_from_the_catalog() -> None:
     api = client()
     headers = admin_headers(api)

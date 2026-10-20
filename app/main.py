@@ -180,6 +180,7 @@ def create_app(database_url: str | None = None, secret: str = SECRET) -> FastAPI
             "http://127.0.0.1:5174",
             "https://vitrificadoschile.com",
             "https://www.vitrificadoschile.com",
+            "https://admin.vitrificadoschile.com",
         ],
         allow_credentials=True,
         allow_methods=["*"],
