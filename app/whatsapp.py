@@ -226,9 +226,8 @@ def notify_work_contract(
     template = send_template(
         client_phone,
         CONTRACT_TEMPLATE,
-        [client_name, address, format_contract_partidas(partidas)],
+        [client_name],
         document=(f"contrato-obra-{work_id}.pdf", pdf),
-        line_parameters={2},
     )
     if not template.get("ok"):
         detail = template.get("error") or "No se pudo enviar el WhatsApp."

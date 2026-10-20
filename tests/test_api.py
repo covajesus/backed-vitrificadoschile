@@ -510,10 +510,7 @@ def test_work_contract_is_sent_to_the_client(monkeypatch) -> None:
     assert created.json()["notice"] == "Obra guardada. Se envió el contrato por WhatsApp al cliente."
     assert sent[0]["phone"] == "912345678"
     assert sent[0]["name"] == "scope_of_work"
-    assert sent[0]["parameters"][0] == "Cliente Norte"
-    assert sent[0]["parameters"][1] == "Calle Falsa 123"
-    assert sent[0]["parameters"][2] == "\u2028- Retape: 3"
-    assert len(sent[0]["parameters"]) == 3
+    assert sent[0]["parameters"] == ["Cliente Norte"]
     assert sent[0]["document"][0].startswith("contrato-obra-")
     assert sent[0]["document"][0].endswith(".pdf")
     assert sent[0]["document"][1].startswith(b"%PDF")
@@ -527,8 +524,7 @@ def test_work_contract_is_sent_to_the_client(monkeypatch) -> None:
     assert updated.status_code == 200
     assert updated.json()["notice"] == "Partidas actualizadas. Se envió el contrato por WhatsApp al cliente."
     assert sent[1]["name"] == "scope_of_work"
-    assert sent[1]["parameters"][2] == "\u2028- Retape: 4"
-    assert len(sent[1]["parameters"]) == 3
+    assert sent[1]["parameters"] == ["Inmobiliaria Dominicos"]
     assert sent[1]["document"][1].startswith(b"%PDF")
     edited = api.put(f"/api/works/{created.json()['id']}", headers=headers, json={
         "name": "Faena contrato",
@@ -548,5 +544,4 @@ def test_work_contract_is_sent_to_the_client(monkeypatch) -> None:
     assert edited.status_code == 200
     assert edited.json()["notice"] == "Obra actualizada. Se envió el contrato por WhatsApp al cliente."
     assert sent[-1]["name"] == "scope_of_work"
-    assert sent[-1]["parameters"][1] == "Calle Falsa 123"
-    assert sent[-1]["parameters"][2] == "\u2028- Retape: 3"
+    assert sent[-1]["parameters"] == ["Cliente Norte"]
