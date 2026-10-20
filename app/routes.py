@@ -23,7 +23,7 @@ from app.domain import (
 )
 from app.notice_pdf import contract_pdf, palmeta_change_pdf
 from app.whatsapp import clean_phone, notify_palmeta_change, notify_work_contract
-from app.geocoding import AddressNotFound, locate_address, suggest_addresses
+from app.geocoding import AddressNotFound, locate_address, shorten_address, suggest_addresses
 from app.models import (
     ROLE_ADMIN,
     ROLE_HELPER,
@@ -155,16 +155,19 @@ def deliver_work_contract(
     *,
     updated: bool,
     previous: dict[int, int] | None = None,
+    saved: str | None = None,
 ) -> str:
+    label = saved or ("Partidas actualizadas" if updated else "Obra guardada")
     try:
         setting = db.get(SettingRow, 1)
         company_phone = setting.company_phone if setting else ""
         lines = contract_lines(db, charge_quantities(db, work.id), previous if updated else None)
+        address = shorten_address(work.address) or work.address
         pdf = contract_pdf(
             updated=updated,
             client_name=work.client_name,
             client_phone=work.client_phone,
-            address=work.address,
+            address=address,
             shift_start=work.shift_start,
             shift_end=work.shift_end,
             work_days=work.work_days,
@@ -175,14 +178,14 @@ def deliver_work_contract(
             client_phone=work.client_phone,
             company_phone=company_phone,
             client_name=work.client_name,
-            address=work.address,
+            address=address,
             partidas=lines,
             pdf=pdf,
             updated=updated,
+            saved=label,
         )
     except Exception as exc:
-        saved = "Partidas actualizadas" if updated else "Obra guardada"
-        return f"{saved}. No se pudo enviar el contrato: {exc}"
+        return f"{label}. No se pudo enviar el contrato: {exc}"
 
 
 def save_work_charges(db: Session, work: WorkRow, charges: list[WorkChargeOut]) -> None:
@@ -412,8 +415,14 @@ def update_work(
     db.commit()
     db.refresh(row)
     result = published_work(row, pending_counts(db), work_charges(db, row.id))
-    if previous != charge_quantities(db, row.id):
-        result.notice = deliver_work_contract(db, row, updated=True, previous=previous)
+    changed = previous != charge_quantities(db, row.id)
+    result.notice = deliver_work_contract(
+        db,
+        row,
+        updated=True,
+        previous=previous if changed else None,
+        saved="Obra actualizada",
+    )
     return result
 
 

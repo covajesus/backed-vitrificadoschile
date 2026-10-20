@@ -73,12 +73,15 @@ def _post(payload: dict) -> dict:
     if not token:
         return {"ok": False, "error": "WhatsApp no está configurado."}
     url = f"https://graph.facebook.com/{GRAPH_VERSION}/{phone_number_id()}/messages"
-    response = httpx.post(
-        url,
-        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
-        json=payload,
-        timeout=30,
-    )
+    try:
+        response = httpx.post(
+            url,
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            json=payload,
+            timeout=30,
+        )
+    except httpx.HTTPError:
+        return {"ok": False, "error": "No se pudo conectar con WhatsApp."}
     body = response.json() if response.content else {}
     if response.status_code != 200:
         error = body.get("error", {})
@@ -213,8 +216,9 @@ def notify_work_contract(
     partidas: list[tuple[str, int | None, int]],
     pdf: bytes,
     updated: bool,
+    saved: str | None = None,
 ) -> str:
-    saved = "Partidas actualizadas" if updated else "Obra guardada"
+    saved = saved or ("Partidas actualizadas" if updated else "Obra guardada")
     if len(phone_digits(client_phone)) < 8:
         return f"{saved}. La obra no tiene el teléfono del cliente para enviar el contrato."
     if not configured():
@@ -230,7 +234,10 @@ def notify_work_contract(
         detail = template.get("error") or "No se pudo enviar el WhatsApp."
         return f"{saved}. No se pudo enviar el contrato: {detail}"
     if len(phone_digits(company_phone)) >= 8:
-        send_template(company_phone, "alerta_nueva_orden", [clean_whatsapp_text(client_name)])
+        try:
+            send_template(company_phone, "alerta_nueva_orden", [clean_whatsapp_text(client_name)])
+        except Exception:
+            pass
     return f"{saved}. Se envió el contrato por WhatsApp al cliente."
 
 

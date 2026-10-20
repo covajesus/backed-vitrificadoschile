@@ -530,3 +530,23 @@ def test_work_contract_is_sent_to_the_client(monkeypatch) -> None:
     assert sent[1]["parameters"][2] == "\u2028- Retape: 4"
     assert len(sent[1]["parameters"]) == 3
     assert sent[1]["document"][1].startswith(b"%PDF")
+    edited = api.put(f"/api/works/{created.json()['id']}", headers=headers, json={
+        "name": "Faena contrato",
+        "address": "Calle Falsa 123",
+        "shiftStart": "08:00",
+        "shiftEnd": "17:00",
+        "plannedHours": 8,
+        "workDays": "weekdays",
+        "palmetaCount": 10,
+        "squareMeters": 40,
+        "clientName": "Cliente Norte",
+        "clientPhone": "912345678",
+        "latitude": -33.4,
+        "longitude": -70.5,
+        "charges": [{"itemId": "1", "quantity": 3}],
+    })
+    assert edited.status_code == 200
+    assert edited.json()["notice"] == "Obra actualizada. Se envió el contrato por WhatsApp al cliente."
+    assert sent[-1]["name"] == "scope_of_work"
+    assert sent[-1]["parameters"][1] == "Calle Falsa 123"
+    assert sent[-1]["parameters"][2] == "\u2028- Retape: 3"
