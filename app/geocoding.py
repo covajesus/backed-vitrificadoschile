@@ -38,8 +38,8 @@ def places_from_google(payload: object) -> list[Place]:
             continue
         geometry = item.get("geometry")
         location = geometry.get("location") if isinstance(geometry, dict) else None
-        label = item.get("formatted_address")
-        if not isinstance(location, dict) or not isinstance(label, str):
+        label = google_label(item)
+        if not isinstance(location, dict) or not label:
             continue
         if "lat" not in location or "lng" not in location:
             continue
@@ -54,11 +54,112 @@ def places_from_nominatim(payload: object) -> list[Place]:
     for item in payload[:5]:
         if not isinstance(item, dict):
             continue
-        label = item.get("display_name")
-        if not isinstance(label, str) or "lat" not in item or "lon" not in item:
+        label = nominatim_label(item)
+        if not label or "lat" not in item or "lon" not in item:
             continue
         places.append(Place(label, float(item["lat"]), float(item["lon"])))
     return places
+
+
+def google_label(item: dict) -> str:
+    components = item.get("address_components")
+    if isinstance(components, list):
+        label = label_from_google(components)
+        if label:
+            return label
+    formatted = item.get("formatted_address")
+    return shorten_address(formatted) if isinstance(formatted, str) else ""
+
+
+def nominatim_label(item: dict) -> str:
+    details = item.get("address")
+    if isinstance(details, dict):
+        label = label_from_nominatim(details)
+        if label:
+            return label
+    display = item.get("display_name")
+    return shorten_address(display) if isinstance(display, str) else ""
+
+
+def label_from_google(components: list) -> str:
+    street = join_street(component_name(components, "route"), component_name(components, "street_number"))
+    comuna = component_name(components, "locality", "administrative_area_level_3")
+    city = city_name(component_name(components, "administrative_area_level_2"))
+    return join_place(street, comuna, city)
+
+
+def label_from_nominatim(details: dict) -> str:
+    street = join_street(
+        detail_name(details, "road", "pedestrian", "residential", "footway"),
+        text(details.get("house_number")),
+    )
+    comuna = detail_name(details, "municipality", "city_district", "borough", "town", "village")
+    city = text(details.get("city")) or city_name(text(details.get("county"))) or city_name(text(details.get("state")))
+    return join_place(street, comuna, city)
+
+
+def component_name(components: list, *types: str) -> str:
+    for wanted in types:
+        for component in components:
+            if not isinstance(component, dict):
+                continue
+            names = component.get("types")
+            if isinstance(names, list) and wanted in names:
+                return text(component.get("long_name"))
+    return ""
+
+
+def detail_name(details: dict, *keys: str) -> str:
+    for key in keys:
+        value = text(details.get(key))
+        if value:
+            return value
+    return ""
+
+
+def join_street(road: str, number: str) -> str:
+    return " ".join(part for part in (road.strip(), number.strip()) if part)
+
+
+def city_name(value: str) -> str:
+    cleaned = value.strip()
+    lowered = cleaned.casefold()
+    if lowered.startswith("provincia de "):
+        return cleaned[13:].strip()
+    if lowered.startswith("región metropolitana de ") or lowered.startswith("region metropolitana de "):
+        return cleaned.split(" de ", 1)[1].strip()
+    if lowered.startswith("provincia") or lowered.startswith("región") or lowered.startswith("region"):
+        return ""
+    return cleaned
+
+
+def join_place(street: str, comuna: str, city: str) -> str:
+    parts: list[str] = []
+    for part in (street, comuna, city):
+        cleaned = part.strip()
+        if not cleaned or cleaned.isdigit():
+            continue
+        if any(cleaned.casefold() == current.casefold() for current in parts):
+            continue
+        parts.append(cleaned)
+    return ", ".join(parts)
+
+
+def shorten_address(value: str) -> str:
+    parts: list[str] = []
+    for raw in value.split(","):
+        part = raw.strip()
+        lowered = part.casefold()
+        if not part or part.isdigit() or lowered in {"chile"}:
+            continue
+        if lowered.startswith(("provincia", "región", "region", "código", "codigo")):
+            continue
+        parts.append(part)
+    return join_place(parts[0] if parts else "", parts[1] if len(parts) > 1 else "", parts[2] if len(parts) > 2 else "")
+
+
+def text(value: object) -> str:
+    return value.strip() if isinstance(value, str) else ""
 
 
 def locate_address(address: str) -> tuple[float, float]:

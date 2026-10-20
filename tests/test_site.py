@@ -11,15 +11,36 @@ def test_twenty_meters_is_the_site_radius() -> None:
 def test_address_suggestions_keep_the_written_place_and_its_coordinates() -> None:
     google = places_from_google({
         "results": [{
-            "formatted_address": "Av. Apoquindo 4500, Las Condes, Chile",
+            "formatted_address": "Av. Apoquindo 4500, Las Condes, Santiago, Región Metropolitana, 7550000, Chile",
+            "address_components": [
+                {"long_name": "4500", "types": ["street_number"]},
+                {"long_name": "Avenida Apoquindo", "types": ["route"]},
+                {"long_name": "Las Condes", "types": ["locality", "political"]},
+                {"long_name": "Provincia de Santiago", "types": ["administrative_area_level_2", "political"]},
+                {"long_name": "Región Metropolitana", "types": ["administrative_area_level_1", "political"]},
+                {"long_name": "7550000", "types": ["postal_code"]},
+                {"long_name": "Chile", "types": ["country", "political"]},
+            ],
             "geometry": {"location": {"lat": -33.41, "lng": -70.58}},
         }],
     })
     nominatim = places_from_nominatim([{
-        "display_name": "Avenida Apoquindo 4500, Las Condes, Chile",
-        "lat": "-33.41",
-        "lon": "-70.58",
+        "display_name": "1980, Til Til, Barrio Bernardo O'Higgins, Ñuñoa, Santiago, Provincia de Santiago, Región Metropolitana de Santiago, 8320000, Chile",
+        "lat": "-33.45",
+        "lon": "-70.60",
+        "address": {
+            "house_number": "1980",
+            "road": "Til Til",
+            "suburb": "Barrio Bernardo O'Higgins",
+            "city_district": "Ñuñoa",
+            "city": "Santiago",
+            "county": "Provincia de Santiago",
+            "state": "Región Metropolitana de Santiago",
+            "postcode": "8320000",
+            "country": "Chile",
+        },
     }])
-    assert google[0].label.startswith("Av. Apoquindo")
+    assert google[0].label == "Avenida Apoquindo 4500, Las Condes, Santiago"
     assert google[0].latitude == -33.41
-    assert nominatim[0].longitude == -70.58
+    assert nominatim[0].label == "Til Til 1980, Ñuñoa, Santiago"
+    assert nominatim[0].longitude == -70.60
