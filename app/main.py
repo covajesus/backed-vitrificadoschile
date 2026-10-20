@@ -15,10 +15,7 @@ from app.seed import ensure_bank_account_types, ensure_banks, ensure_charge_item
 from app.whatsapp import load_env_file
 
 SECRET = "vitrificados-chile-dev-secret"
-DEFAULT_DATABASE_URL = os.environ.get(
-    "DATABASE_URL",
-    "mysql+pymysql://root:@127.0.0.1:3306/vitrificados_chile?charset=utf8mb4",
-)
+FALLBACK_DATABASE_URL = "mysql+pymysql://root:@127.0.0.1:3306/vitrificados_chile?charset=utf8mb4"
 
 
 def ensure_mysql_database(database_url: str) -> None:
@@ -141,7 +138,7 @@ def drop_legacy_tables(engine) -> None:
 def create_app(database_url: str | None = None, secret: str = SECRET) -> FastAPI:
     load_env_file()
     if database_url is None:
-        database_url = DEFAULT_DATABASE_URL
+        database_url = os.environ.get("DATABASE_URL", FALLBACK_DATABASE_URL)
     if database_url.startswith("mysql"):
         ensure_mysql_database(database_url)
         engine = create_engine(database_url)
