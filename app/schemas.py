@@ -150,6 +150,7 @@ class CrewMemberBody(BaseModel):
     workerId: str
     startDate: str = ""
     dayCount: int = 0
+    excludedDates: list[str] = []
 
 
 class CrewBody(BaseModel):
@@ -162,6 +163,7 @@ class AssignmentOut(BaseModel):
     workerId: str
     startDate: str = ""
     dayCount: int = 0
+    excludedDates: list[str] = []
 
 
 class ArrivalBody(BaseModel):

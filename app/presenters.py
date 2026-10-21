@@ -89,6 +89,7 @@ def assignment_out(row: WorkScheduleRow) -> AssignmentOut:
         workerId=str(row.user_id),
         startDate=row.start_date or "",
         dayCount=row.day_count or 0,
+        excludedDates=[item for item in (row.excluded_dates or "").split(",") if item],
     )
 
 

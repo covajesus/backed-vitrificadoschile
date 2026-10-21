@@ -167,6 +167,7 @@ class WorkScheduleRow(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
     start_date: Mapped[str] = mapped_column(String(10), default="")
     day_count: Mapped[int] = mapped_column(Integer, default=0)
+    excluded_dates: Mapped[str] = mapped_column(String(1000), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

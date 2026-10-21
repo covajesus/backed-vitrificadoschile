@@ -560,10 +560,28 @@ def replace_crew(
             fail(400, "La fecha de inicio no es válida.")
         if member.dayCount < 0:
             fail(400, "Los días de la asignación no pueden ser negativos.")
-        unique[person.id] = CrewMemberBody(workerId=str(person.id), startDate=start, dayCount=member.dayCount)
+        excluded = []
+        for item in member.excludedDates:
+            day = item.strip()
+            if day and re.fullmatch(r"\d{4}-\d{2}-\d{2}", day) is None:
+                fail(400, "La fecha excluida no es válida.")
+            if day and day not in excluded:
+                excluded.append(day)
+        unique[person.id] = CrewMemberBody(
+            workerId=str(person.id),
+            startDate=start,
+            dayCount=member.dayCount,
+            excludedDates=excluded,
+        )
     db.query(WorkScheduleRow).filter(WorkScheduleRow.work_id == work_key).delete()
     db.add_all(
-        WorkScheduleRow(work_id=work_key, user_id=user_id, start_date=member.startDate, day_count=member.dayCount)
+        WorkScheduleRow(
+            work_id=work_key,
+            user_id=user_id,
+            start_date=member.startDate,
+            day_count=member.dayCount,
+            excluded_dates=",".join(member.excludedDates),
+        )
         for user_id, member in unique.items()
     )
     db.commit()

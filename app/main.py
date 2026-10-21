@@ -83,6 +83,7 @@ def ensure_measure_columns(engine) -> None:
     ensure_column(engine, "users", "status_id", "status_id INTEGER NULL")
     ensure_column(engine, "work_schedules", "start_date", "start_date VARCHAR(10) NOT NULL DEFAULT ''")
     ensure_column(engine, "work_schedules", "day_count", "day_count INTEGER NOT NULL DEFAULT 0")
+    ensure_column(engine, "work_schedules", "excluded_dates", "excluded_dates VARCHAR(1000) NOT NULL DEFAULT ''")
     ensure_column(engine, "tasks", "kind", "kind VARCHAR(20) NOT NULL DEFAULT 'site'")
     ensure_column(engine, "tasks", "amount", "amount INTEGER NOT NULL DEFAULT 0")
     ensure_column(engine, "tasks", "extra_amount", "extra_amount INTEGER NOT NULL DEFAULT 0")

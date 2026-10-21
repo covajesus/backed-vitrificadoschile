@@ -181,11 +181,16 @@ def test_assigning_a_site_lead_lists_them_on_the_work() -> None:
         "members": [{"workerId": "2", "startDate": "2026-10-05", "dayCount": 5}],
     })
     assert saved.status_code == 200
-    assert saved.json() == [{"workId": "1", "workerId": "2", "startDate": "2026-10-05", "dayCount": 5}]
+    assert saved.json() == [{"workId": "1", "workerId": "2", "startDate": "2026-10-05", "dayCount": 5, "excludedDates": []}]
     listed = api.get("/api/assignments", headers=headers)
     assert listed.status_code == 200
     match = [item for item in listed.json() if item["workId"] == "1" and item["workerId"] == "2"]
-    assert match == [{"workId": "1", "workerId": "2", "startDate": "2026-10-05", "dayCount": 5}]
+    assert match == [{"workId": "1", "workerId": "2", "startDate": "2026-10-05", "dayCount": 5, "excludedDates": []}]
+    removed = api.put("/api/works/1/crew", headers=headers, json={
+        "members": [{"workerId": "2", "startDate": "2026-10-05", "dayCount": 5, "excludedDates": ["2026-10-06"]}],
+    })
+    assert removed.status_code == 200
+    assert removed.json()[0]["excludedDates"] == ["2026-10-06"]
 
 
 def test_roles_statuses_and_schedules_are_numeric() -> None:
