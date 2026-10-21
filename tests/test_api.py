@@ -684,6 +684,7 @@ def test_settlement_pdf_lists_pay_items_without_deductions() -> None:
     assert pdf.content.startswith(b"%PDF")
     text = pdf.content.decode("latin-1", errors="ignore")
     assert "Jornada 2026-10-05" in text
+    assert "Octubre de 2026" in text
     assert "Sin deducciones" in text
     assert "Descuento" not in text
     assert api.get(f"/api/settlements/{body['id']}/pdf", headers=helper_headers).status_code == 404
@@ -691,3 +692,38 @@ def test_settlement_pdf_lists_pay_items_without_deductions() -> None:
     removed = api.delete(f"/api/settlements/{body['id']}", headers=headers)
     assert removed.status_code == 200
     assert api.get(f"/api/settlements/{body['id']}/pdf", headers=headers).status_code == 404
+
+
+def test_admin_records_a_deduction_for_the_crew_period() -> None:
+    api = client()
+    headers = admin_headers(api)
+    created = api.post("/api/deductions", headers=headers, json={
+        "workerId": "3",
+        "period": "2026-10",
+        "amount": 5000,
+    })
+    assert created.status_code == 200
+    assert created.json()["amount"] == 5000
+    assert created.json()["period"] == "2026-10"
+    listed = api.get("/api/deductions", headers=headers)
+    assert listed.status_code == 200
+    assert listed.json()[0]["workerId"] == "3"
+    helper = api.post("/api/auth/login", json={"email": "helper.worker@vitrificados.local", "password": "demo-site"})
+    helper_headers = {"Authorization": f"Bearer {helper.json()['token']}"}
+    assert api.get("/api/deductions", headers=helper_headers).status_code == 403
+    receipt = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+    settlement = api.post("/api/settlements", headers=headers, json={
+        "workerId": "3",
+        "period": "2026-10",
+        "receiptDataUrl": receipt,
+        "items": [
+            {"label": "Jornada 2026-10-05", "amount": 54000},
+            {"label": "Deducción", "amount": -5000},
+        ],
+    })
+    assert settlement.status_code == 200
+    assert settlement.json()["total"] == 49000
+    pdf = api.get(f"/api/settlements/{settlement.json()['id']}/pdf", headers=headers)
+    text = pdf.content.decode("latin-1", errors="ignore")
+    assert "Deducciones" in text
+    assert "Sin deducciones" not in text

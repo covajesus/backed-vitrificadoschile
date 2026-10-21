@@ -341,6 +341,17 @@ class SettlementOut(SettlementBody):
     createdAt: str
 
 
+class DeductionBody(BaseModel):
+    workerId: str
+    period: str
+    amount: int
+
+
+class DeductionOut(DeductionBody):
+    id: str
+    createdAt: str
+
+
 class PaymentOut(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 

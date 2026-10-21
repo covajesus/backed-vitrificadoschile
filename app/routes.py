@@ -39,6 +39,7 @@ from app.models import (
     BankAccountTypeRow,
     BankRow,
     ChargeItemRow,
+    DeductionRow,
     NotificationContactRow,
     PalmetaChangeRow,
     SettingRow,
@@ -65,6 +66,8 @@ from app.schemas import (
     ChargeItemBody,
     ChargeItemOut,
     CrewBody,
+    DeductionBody,
+    DeductionOut,
     CrewMemberBody,
     ItemPriceOut,
     LoginBody,
@@ -1388,8 +1391,8 @@ def settlement_payload(body: SettlementBody, db: Session) -> tuple[UserRow, str,
     cleaned: list[dict[str, str | int]] = []
     for item in body.items:
         label = item.label.strip()
-        if not label or item.amount < 0:
-            fail(400, "El monto no puede ser negativo.")
+        if not label:
+            fail(400, "Indica el haber.")
         cleaned.append({"label": label, "amount": int(item.amount)})
     total = sum(int(item["amount"]) for item in cleaned)
     return user, json.dumps(cleaned, ensure_ascii=False), total
@@ -1514,6 +1517,92 @@ def download_settlement(
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="liquidacion-{row.period}.pdf"'},
     )
+
+
+def deduction_payload(body: DeductionBody, db: Session) -> UserRow:
+    if re.fullmatch(r"\d{4}-(0[1-9]|1[0-2])", body.period) is None:
+        fail(400, "Indica el periodo con formato AAAA-MM.")
+    if body.amount <= 0:
+        fail(400, "Indica un monto mayor a cero.")
+    try:
+        user_id = int(body.workerId)
+    except ValueError:
+        fail(400, "El trabajador no existe.")
+    user = db.get(UserRow, user_id)
+    if user is None or user.deleted_at is not None or user.rol_id not in {ROLE_SITE_LEAD, ROLE_HELPER}:
+        fail(400, "El trabajador no existe.")
+    return user
+
+
+def deduction_out(row: DeductionRow) -> DeductionOut:
+    return DeductionOut(
+        id=str(row.id),
+        workerId=str(row.user_id),
+        period=row.period,
+        amount=row.amount,
+        createdAt=row.created_at.isoformat(),
+    )
+
+
+@router.get("/deductions")
+def list_deductions(
+    _: AccountRow = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> list[DeductionOut]:
+    rows = (
+        db.query(DeductionRow)
+        .filter(DeductionRow.deleted_at.is_(None))
+        .order_by(DeductionRow.id.desc())
+        .all()
+    )
+    return [deduction_out(row) for row in rows]
+
+
+@router.post("/deductions")
+def create_deduction(
+    body: DeductionBody,
+    _: AccountRow = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> DeductionOut:
+    user = deduction_payload(body, db)
+    row = DeductionRow(user_id=user.id, period=body.period, amount=body.amount)
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return deduction_out(row)
+
+
+@router.put("/deductions/{deduction_id}")
+def update_deduction(
+    deduction_id: int,
+    body: DeductionBody,
+    _: AccountRow = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> DeductionOut:
+    row = db.get(DeductionRow, deduction_id)
+    if row is None or row.deleted_at is not None:
+        fail(404, "La deducción no existe.")
+    user = deduction_payload(body, db)
+    row.user_id = user.id
+    row.period = body.period
+    row.amount = body.amount
+    db.commit()
+    db.refresh(row)
+    return deduction_out(row)
+
+
+@router.delete("/deductions/{deduction_id}")
+def delete_deduction(
+    deduction_id: int,
+    _: AccountRow = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> dict[str, bool]:
+    row = db.get(DeductionRow, deduction_id)
+    if row is None or row.deleted_at is not None:
+        fail(404, "La deducción no existe.")
+    row.deleted_at = utcnow()
+    db.commit()
+    return {"ok": True}
 
 
 @router.get("/whatsapp/webhook")

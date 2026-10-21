@@ -9,8 +9,8 @@ from fpdf import FPDF
 from app.domain import palmeta_amount
 
 MONTHS = (
-    "enero", "febrero", "marzo", "abril", "mayo", "junio",
-    "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre",
+    "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+    "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre",
 )
 
 
@@ -74,7 +74,7 @@ def period_label(period: str) -> str:
     year, month = period.split("-")
     index = int(month) - 1
     if 0 <= index < len(MONTHS):
-        return f"{MONTHS[index]} {year}"
+        return f"{MONTHS[index]} de {year}"
     return period
 
 
@@ -130,12 +130,19 @@ def settlement_pdf(
     write_line(pdf, "Liquidación de sueldo", bold=True, size=16)
     write_line(pdf, f"Trabajador: {person}")
     write_line(pdf, f"Periodo: {period_label(period)}")
+    haberes = [(label, amount) for label, amount in items if amount >= 0]
+    deductions = [(label, amount) for label, amount in items if amount < 0]
     write_line(pdf, "Haberes", bold=True)
-    if not items:
+    if not haberes:
         write_line(pdf, "Sin haberes en el periodo.")
-    for label, amount in items:
+    for label, amount in haberes:
         write_line(pdf, f"{label}    {money(amount)}")
-    write_line(pdf, "Sin deducciones.")
+    if deductions:
+        write_line(pdf, "Deducciones", bold=True)
+        for label, amount in deductions:
+            write_line(pdf, f"{label}    {money(abs(amount))}")
+    else:
+        write_line(pdf, "Sin deducciones.")
     write_line(pdf, f"Total a pagar: {money(total)}", bold=True)
     embed_receipt(pdf, receipt)
     return bytes(pdf.output())
