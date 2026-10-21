@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 from app.main import create_app
 from app.models import RoleRow, StatusRow, WorkScheduleRow
 from app.notice_pdf import contract_pdf
-from app.whatsapp import format_contract_partidas
+from app.whatsapp import format_contract_lines
 
 PHOTO = "data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22/%3E"
 
@@ -193,7 +193,7 @@ def test_roles_statuses_and_schedules_are_numeric() -> None:
     assert schedule.user_id == 2
 
 
-def test_site_lead_uses_partida_prices_and_helper_requires_hourly_rate() -> None:
+def test_site_lead_uses_charge_item_prices_and_helper_requires_hourly_rate() -> None:
     api = client()
     headers = admin_headers(api)
     created = api.post("/api/accounts", headers=headers, json={
@@ -375,7 +375,7 @@ def test_palmeta_change_only_increases_and_waits_for_the_client() -> None:
     assert current["pendingPalmetaCount"] is None
 
 
-def test_only_the_site_lead_updates_partida_quantities() -> None:
+def test_only_the_site_lead_updates_charge_quantities() -> None:
     api = client()
     helper = api.post("/api/auth/login", json={"email": "helper.worker@vitrificados.local", "password": "demo-site"})
     helper_headers = {"Authorization": f"Bearer {helper.json()['token']}"}
@@ -438,7 +438,7 @@ def contract_text(data: bytes) -> str:
     return " ".join(text.split())
 
 
-def test_contract_pdf_lists_the_agreed_partidas() -> None:
+def test_contract_pdf_lists_the_agreed_charges() -> None:
     initial = contract_pdf(
         updated=False,
         client_name="Cliente Norte",
@@ -473,13 +473,13 @@ def test_contract_pdf_lists_the_agreed_partidas() -> None:
     assert "aceptada automáticamente" in updated_text
 
 
-def test_contract_partidas_use_one_line_each() -> None:
-    text = format_contract_partidas([
+def test_contract_lines_use_one_line_each() -> None:
+    text = format_contract_lines([
         ("Palmetas de cambio", None, 100),
         ("Palmetas de pegado", None, 300),
     ])
     assert text == "\u2028- Palmetas de cambio: 100.\u2028- Palmetas de pegado: 300"
-    assert format_contract_partidas([]) == "Sin partidas con cantidad"
+    assert format_contract_lines([]) == "Sin partidas con cantidad"
 
 
 def test_work_contract_is_sent_to_the_client(monkeypatch) -> None:

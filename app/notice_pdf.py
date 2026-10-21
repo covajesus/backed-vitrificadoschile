@@ -116,13 +116,13 @@ def clause(pdf: FPDF, font: str, html: str, size: float = 11) -> None:
     pdf.write_html(f'<p align="justify"><font face="{font}" size="{size}">{html}</font></p>')
 
 
-def partida_quantity(previous: int | None, quantity: int) -> str:
+def charge_quantity(previous: int | None, quantity: int) -> str:
     if previous is None or previous == quantity:
         return str(quantity)
     return f"{previous} a {quantity}"
 
 
-def partida_row(pdf: FPDF, font: str, name: str, quantity: str) -> None:
+def charge_row(pdf: FPDF, font: str, name: str, quantity: str) -> None:
     name_width = pdf.epw * 0.75
     quantity_width = pdf.epw - name_width
     pdf.set_font(font, "", 10)
@@ -225,9 +225,9 @@ def contract_pdf(
     rule = pdf.get_y()
     pdf.line(pdf.l_margin, rule, pdf.w - pdf.r_margin, rule)
     if not lines:
-        partida_row(pdf, font, "Sin partidas con cantidad.", "-")
+        charge_row(pdf, font, "Sin partidas con cantidad.", "-")
     for name, previous, quantity in lines:
-        partida_row(pdf, font, name, partida_quantity(previous, quantity))
+        charge_row(pdf, font, name, charge_quantity(previous, quantity))
     pdf.ln(3)
     clause(
         pdf,

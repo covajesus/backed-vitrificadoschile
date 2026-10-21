@@ -190,7 +190,7 @@ def deliver_work_contract(
             company_phone=company_phone,
             client_name=work.client_name,
             address=address,
-            partidas=lines,
+            lines=lines,
             pdf=pdf,
             updated=updated,
             saved=label,

@@ -52,7 +52,7 @@ def clean_whatsapp_text(value: str, *, keep_lines: bool = False) -> str:
     return text.strip()[:1024] or "-"
 
 
-def format_contract_partidas(lines: list[tuple[str, int | None, int]]) -> str:
+def format_contract_lines(lines: list[tuple[str, int | None, int]]) -> str:
     rows = [f"- {name}: {quantity}." for name, _previous, quantity in lines]
     if not rows:
         return "Sin partidas con cantidad"
@@ -214,7 +214,7 @@ def notify_work_contract(
     company_phone: str,
     client_name: str,
     address: str,
-    partidas: list[tuple[str, int | None, int]],
+    lines: list[tuple[str, int | None, int]],
     pdf: bytes,
     updated: bool,
     saved: str | None = None,
