@@ -306,7 +306,7 @@ def test_tasks_drop_on_half_hours() -> None:
     tasks = api.get("/api/tasks", headers=headers)
     assert tasks.status_code == 200
     names = {item["name"] for item in tasks.json()}
-    assert names == {"Trabajo de Obra", "Extras"}
+    assert names == {"Trabajo de Obra", "Almuerzo", "Extras"}
     created = api.post("/api/tasks", headers=headers, json={
         "name": "Traslado",
         "kind": "general",

@@ -156,10 +156,21 @@ def seed_tasks(db: Session) -> None:
     if db.query(TaskRow).first():
         return
     db.add_all([
-        TaskRow(names="Trabajo de Obra"),
-        TaskRow(names="Extras"),
+        TaskRow(names="Trabajo de Obra", kind="site"),
+        TaskRow(names="Almuerzo", kind="site"),
+        TaskRow(names="Extras", kind="general"),
     ])
     db.commit()
+
+
+def ensure_tasks(db: Session) -> None:
+    existing = {
+        row.names
+        for row in db.query(TaskRow).filter(TaskRow.deleted_at.is_(None))
+    }
+    if "Almuerzo" not in existing:
+        db.add(TaskRow(names="Almuerzo", kind="site", amount=0, extra_amount=0))
+        db.commit()
 
 
 STATUS_NAMES = {

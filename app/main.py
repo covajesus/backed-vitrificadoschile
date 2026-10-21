@@ -11,7 +11,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.models import Base
 from app.routes import login_account, router
-from app.seed import ensure_bank_account_types, ensure_banks, ensure_charge_items, ensure_roles, ensure_setting, ensure_statuses, seed_charge_items, seed_if_empty, seed_tasks
+from app.seed import ensure_bank_account_types, ensure_banks, ensure_charge_items, ensure_roles, ensure_setting, ensure_statuses, ensure_tasks, seed_charge_items, seed_if_empty, seed_tasks
 from app.whatsapp import load_env_file
 
 SECRET = "vitrificados-chile-dev-secret"
@@ -168,6 +168,7 @@ def create_app(database_url: str | None = None, secret: str = SECRET) -> FastAPI
     with session_factory() as db:
         seed_if_empty(db)
         seed_tasks(db)
+        ensure_tasks(db)
         seed_charge_items(db)
         ensure_charge_items(db)
         ensure_statuses(db)
