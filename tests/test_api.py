@@ -181,7 +181,13 @@ def test_roles_statuses_and_schedules_are_numeric() -> None:
         statuses = [(row.id, row.name) for row in db.query(StatusRow).order_by(StatusRow.id)]
         schedule = db.query(WorkScheduleRow).order_by(WorkScheduleRow.id).first()
     assert roles == [(1, "Administrador"), (2, "Maestro de Obra"), (3, "Ayudante")]
-    assert statuses == [(1, "Activo"), (2, "Trabajando"), (3, "Entregado")]
+    assert statuses == [
+        (1, "En espera"),
+        (2, "Trabajando"),
+        (3, "Entregada"),
+        (4, "Activo"),
+        (5, "Desactivado"),
+    ]
     assert schedule is not None
     assert schedule.work_id == 1
     assert schedule.user_id == 2
@@ -547,6 +553,21 @@ def test_work_contract_is_sent_to_the_client(monkeypatch) -> None:
     assert edited.json()["notice"] == "Obra actualizada. Se envió el contrato por WhatsApp al cliente."
     assert sent[-1]["name"] == "updated_scope_of_work"
     assert sent[-1]["parameters"] == ["Cliente Norte"]
+
+
+def test_settings_store_many_emails_and_phones() -> None:
+    api = client()
+    headers = admin_headers(api)
+    saved = api.put("/api/settings", headers=headers, json={
+        "companyPhone": "",
+        "emails": ["obra@vitrificadoschile.com", "aviso@vitrificadoschile.com"],
+        "phones": ["56911112222", "56933334444"],
+    })
+    assert saved.status_code == 200
+    assert saved.json()["emails"] == ["obra@vitrificadoschile.com", "aviso@vitrificadoschile.com"]
+    assert saved.json()["phones"] == ["56911112222", "56933334444"]
+    invalid = api.put("/api/settings", headers=headers, json={"emails": ["sin-arroba"], "phones": []})
+    assert invalid.status_code == 400
 
 
 def test_admin_can_roll_the_work_status() -> None:

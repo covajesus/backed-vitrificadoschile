@@ -218,6 +218,8 @@ def notify_work_contract(
     pdf: bytes,
     updated: bool,
     saved: str | None = None,
+    emails: list[str] | None = None,
+    phones: list[str] | None = None,
 ) -> str:
     saved = saved or ("Partidas actualizadas" if updated else "Obra guardada")
     if len(phone_digits(client_phone)) < 8:
@@ -233,12 +235,30 @@ def notify_work_contract(
     if not template.get("ok"):
         detail = template.get("error") or "No se pudo enviar el WhatsApp."
         return f"{saved}. No se pudo enviar el contrato: {detail}"
-    if len(phone_digits(company_phone)) >= 8:
+    notified: list[str] = []
+    if company_phone:
+        notified.append(company_phone)
+    for phone in phones or []:
+        if phone not in notified and len(phone_digits(phone)) >= 8:
+            notified.append(phone)
+    for phone in notified:
+        if len(phone_digits(phone)) < 8:
+            continue
         try:
-            send_template(company_phone, "alerta_nueva_orden", [clean_whatsapp_text(client_name)])
+            send_template(phone, "alerta_nueva_orden", [clean_whatsapp_text(client_name)])
         except Exception:
             pass
-    return f"{saved}. Se envió el contrato por WhatsApp al cliente."
+    from app.mail import send_contract_email
+    subject = "Actualización de contrato" if updated else "Contrato de obra"
+    mail = send_contract_email(
+        emails or [],
+        f"{subject} — {client_name}",
+        f"{saved}. Cliente: {client_name}. Dirección: {address}.",
+        f"contrato-obra-{work_id}.pdf",
+        pdf,
+    )
+    sent = f"{saved}. Se envió el contrato por WhatsApp al cliente."
+    return f"{sent} {mail}".strip() if mail else sent
 
 
 def notify_palmeta_change(

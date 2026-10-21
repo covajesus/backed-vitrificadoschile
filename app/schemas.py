@@ -68,6 +68,8 @@ class AccountOut(BaseModel):
     accountHolderDocumentId: str = ""
     itemPrices: list[ItemPriceOut] = []
     active: bool
+    statusId: str = "4"
+    statusName: str = "Activo"
 
 
 class LoginBody(BaseModel):
@@ -195,6 +197,7 @@ class AccountBody(BaseModel):
     accountHolder: str = ""
     accountHolderDocumentId: str = ""
     itemPrices: list[ItemPriceOut] = []
+    statusId: str = "4"
 
 
 class PaymentBody(BaseModel):
@@ -264,12 +267,22 @@ class ProfileBody(BaseModel):
     accountHolderDocumentId: str = ""
 
 
+class StatusOut(BaseModel):
+    id: str
+    name: str
+    scope: str
+
+
 class SettingBody(BaseModel):
-    companyPhone: str
+    companyPhone: str = ""
+    emails: list[str] | None = None
+    phones: list[str] | None = None
 
 
 class SettingOut(BaseModel):
     companyPhone: str
+    emails: list[str] = []
+    phones: list[str] = []
 
 
 class PalmetaChangeBody(BaseModel):

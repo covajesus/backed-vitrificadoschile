@@ -24,6 +24,8 @@ ROLE_EMPLOYEE = ROLE_SITE_LEAD
 STATUS_ACTIVE = 1
 STATUS_WORKING = 2
 STATUS_DELIVERED = 3
+STATUS_ACCOUNT_ACTIVE = 4
+STATUS_ACCOUNT_INACTIVE = 5
 
 STATUS_CODE = {
     STATUS_ACTIVE: "active",
@@ -48,6 +50,7 @@ class StatusRow(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(String(80))
+    scope: Mapped[str] = mapped_column(String(20), default="work")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
@@ -112,6 +115,7 @@ class UserRow(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     rol_id: Mapped[int] = mapped_column(ForeignKey("roles.id"))
+    status_id: Mapped[int | None] = mapped_column(ForeignKey("statuses.id"), nullable=True)
     bank_id: Mapped[int | None] = mapped_column(ForeignKey("banks.id"), nullable=True)
     account_type_id: Mapped[int | None] = mapped_column(ForeignKey("bank_account_types.id"), nullable=True)
     hourly_rate: Mapped[float] = mapped_column(Float, default=0)
@@ -145,6 +149,8 @@ class UserRow(Base):
 
     @property
     def active(self) -> bool:
+        if self.status_id == STATUS_ACCOUNT_INACTIVE:
+            return False
         return self.deleted_at is None
 
     @active.setter
@@ -206,6 +212,16 @@ class SettingRow(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     company_phone: Mapped[str] = mapped_column(String(30), default="")
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+
+class NotificationContactRow(Base):
+    __tablename__ = "notification_contacts"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    kind: Mapped[str] = mapped_column(String(20))
+    value: Mapped[str] = mapped_column(String(200))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
 
 

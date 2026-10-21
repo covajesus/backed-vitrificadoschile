@@ -42,9 +42,9 @@ def seed_if_empty(db: Session) -> None:
         RoleRow(id=ROLE_ADMIN, rol="Administrador"),
         RoleRow(id=ROLE_SITE_LEAD, rol="Maestro de Obra"),
         RoleRow(id=ROLE_HELPER, rol="Ayudante"),
-        StatusRow(id=STATUS_ACTIVE, name="Activo"),
+        StatusRow(id=STATUS_ACTIVE, name="En espera"),
         StatusRow(id=STATUS_WORKING, name="Trabajando"),
-        StatusRow(id=3, name="Entregado"),
+        StatusRow(id=3, name="Entregada"),
     ])
     db.flush()
     db.add_all([
@@ -159,6 +159,29 @@ def seed_tasks(db: Session) -> None:
         TaskRow(names="Trabajo de Obra"),
         TaskRow(names="Extras"),
     ])
+    db.commit()
+
+
+STATUS_NAMES = {
+    1: ("En espera", "work"),
+    2: ("Trabajando", "work"),
+    3: ("Entregada", "work"),
+    4: ("Activo", "account"),
+    5: ("Desactivado", "account"),
+}
+
+
+def ensure_statuses(db: Session) -> None:
+    for status_id, (name, scope) in STATUS_NAMES.items():
+        row = db.get(StatusRow, status_id)
+        if row is None:
+            db.add(StatusRow(id=status_id, name=name, scope=scope))
+        else:
+            row.name = name
+            row.scope = scope
+    db.flush()
+    db.query(UserRow).filter(UserRow.status_id.is_(None), UserRow.deleted_at.is_(None)).update({UserRow.status_id: 4})
+    db.query(UserRow).filter(UserRow.deleted_at.isnot(None), UserRow.status_id.is_(None)).update({UserRow.status_id: 5})
     db.commit()
 
 

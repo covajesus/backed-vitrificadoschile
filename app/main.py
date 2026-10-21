@@ -11,7 +11,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.models import Base
 from app.routes import login_account, router
-from app.seed import ensure_bank_account_types, ensure_banks, ensure_charge_items, ensure_roles, ensure_setting, seed_charge_items, seed_if_empty, seed_tasks
+from app.seed import ensure_bank_account_types, ensure_banks, ensure_charge_items, ensure_roles, ensure_setting, ensure_statuses, seed_charge_items, seed_if_empty, seed_tasks
 from app.whatsapp import load_env_file
 
 SECRET = "vitrificados-chile-dev-secret"
@@ -79,6 +79,8 @@ def ensure_measure_columns(engine) -> None:
     ensure_column(engine, "users", "account_type_id", "account_type_id INTEGER NULL")
     ensure_column(engine, "charge_items", "kind", "kind VARCHAR(20) NOT NULL DEFAULT 'simple'")
     ensure_column(engine, "charge_items", "parent_id", "parent_id INTEGER NULL")
+    ensure_column(engine, "statuses", "scope", "scope VARCHAR(20) NOT NULL DEFAULT 'work'")
+    ensure_column(engine, "users", "status_id", "status_id INTEGER NULL")
 
 
 def ensure_hourly_rate(engine) -> None:
@@ -163,6 +165,7 @@ def create_app(database_url: str | None = None, secret: str = SECRET) -> FastAPI
         seed_tasks(db)
         seed_charge_items(db)
         ensure_charge_items(db)
+        ensure_statuses(db)
         ensure_roles(db)
         ensure_banks(db)
         ensure_bank_account_types(db)

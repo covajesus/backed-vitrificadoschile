@@ -1,5 +1,5 @@
 from app.domain import arrival_notice, whatsapp_href
-from app.models import ChargeItemRow, TaskBlockRow, TaskRow, TimeClockRow, UserRow, WorkRow, WorkScheduleRow
+from app.models import STATUS_ACCOUNT_INACTIVE, ChargeItemRow, TaskBlockRow, TaskRow, TimeClockRow, UserRow, WorkRow, WorkScheduleRow
 from app.schemas import AccountOut, ArrivalOut, AssignmentOut, ChargeItemOut, ChargeLineOut, ItemPriceOut, TaskBlockOut, TaskOut, WorkChargeOut, WorkOut
 
 
@@ -48,6 +48,8 @@ def account_out(row: UserRow, item_prices: list[ItemPriceOut] | None = None) -> 
         accountHolderDocumentId=row.account_holder_document_id,
         itemPrices=item_prices or [],
         active=row.active,
+        statusId=str(row.status_id or 4),
+        statusName="Desactivado" if row.status_id == STATUS_ACCOUNT_INACTIVE else "Activo",
     )
 
 

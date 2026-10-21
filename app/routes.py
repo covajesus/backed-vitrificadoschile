@@ -18,6 +18,7 @@ from app.domain import (
     palmeta_increase_error,
     phone_digits,
     ranges_overlap,
+    shift_hours,
     task_block_error,
     work_error,
 )
@@ -29,14 +30,18 @@ from app.models import (
     ROLE_ADMIN,
     ROLE_HELPER,
     ROLE_SITE_LEAD,
+    STATUS_ACCOUNT_ACTIVE,
+    STATUS_ACCOUNT_INACTIVE,
     STATUS_ACTIVE,
     STATUS_DELIVERED,
     AccountRow,
     BankAccountTypeRow,
     BankRow,
     ChargeItemRow,
+    NotificationContactRow,
     PalmetaChangeRow,
     SettingRow,
+    StatusRow,
     TaskBlockRow,
     TaskRow,
     TimeClockRow,
@@ -70,6 +75,7 @@ from app.schemas import (
     ProfileBody,
     SettingBody,
     SettingOut,
+    StatusOut,
     TaskBlockBody,
     TaskBlockOut,
     TaskBody,
@@ -163,6 +169,9 @@ def deliver_work_contract(
     try:
         setting = db.get(SettingRow, 1)
         company_phone = setting.company_phone if setting else ""
+        contacts = db.query(NotificationContactRow).all()
+        emails = [row.value for row in contacts if row.kind == "email"]
+        phones = [row.value for row in contacts if row.kind == "phone"]
         lines = contract_lines(db, charge_quantities(db, work.id), previous if updated else None)
         address = shorten_address(work.address) or work.address
         pdf = contract_pdf(
@@ -185,6 +194,8 @@ def deliver_work_contract(
             pdf=pdf,
             updated=updated,
             saved=label,
+            emails=emails,
+            phones=phones,
         )
     except Exception as exc:
         return f"{label}. No se pudo enviar el contrato: {exc}"
@@ -262,7 +273,7 @@ def chosen_place(body: WorkBody) -> tuple[float, float]:
 def login_account(body: LoginBody, db: Session, secret: str) -> LoginResult:
     email = body.email.strip().lower()
     account = db.query(AccountRow).filter(AccountRow.email == email, AccountRow.deleted_at.is_(None)).one_or_none()
-    if account is None or not verify_password(body.password, account.password_hash):
+    if account is None or account.status_id == STATUS_ACCOUNT_INACTIVE or not verify_password(body.password, account.password_hash):
         fail(401, "Correo o contraseña incorrectos.")
     return LoginResult(token=create_token(str(account.id), secret), account=priced_account(db, account))
 
@@ -369,7 +380,7 @@ def create_work(body: WorkBody, _: AccountRow = Depends(require_admin), db: Sess
         address=body.address.strip(),
         shift_start=body.shiftStart,
         shift_end=body.shiftEnd,
-        planned_hours=body.plannedHours,
+        planned_hours=shift_hours(body.shiftStart, body.shiftEnd),
         work_days=body.workDays,
         palmeta_count=body.palmetaCount,
         square_meters=body.squareMeters,
@@ -406,7 +417,7 @@ def update_work(
     row.longitude = longitude
     row.shift_start = body.shiftStart
     row.shift_end = body.shiftEnd
-    row.planned_hours = body.plannedHours
+    row.planned_hours = shift_hours(body.shiftStart, body.shiftEnd)
     row.work_days = body.workDays
     row.palmeta_count = body.palmetaCount
     row.square_meters = body.squareMeters
@@ -697,6 +708,7 @@ def create_account(body: AccountBody, _: AccountRow = Depends(require_admin), db
         password_hash=hash_password(body.password),
         hourly_rate=body.hourlyRate if body.roleId == ROLE_HELPER else 0,
         palmeta_cost=body.palmetaCost if body.roleId == ROLE_SITE_LEAD else 0,
+        status_id=account_status_id(body.statusId),
     )
     bank_message = assign_bank(db, row, body.bankId)
     if bank_message:
@@ -756,10 +768,37 @@ def update_profile(
     return priced_account(db, account)
 
 
+def contact_values(db: Session, kind: str) -> list[str]:
+    return [row.value for row in db.query(NotificationContactRow).filter(NotificationContactRow.kind == kind).order_by(NotificationContactRow.id)]
+
+
+def published_settings(db: Session) -> SettingOut:
+    row = db.get(SettingRow, 1)
+    phones = contact_values(db, "phone")
+    if not phones and row and row.company_phone:
+        phones = [row.company_phone]
+    return SettingOut(
+        companyPhone=row.company_phone if row else "",
+        emails=contact_values(db, "email"),
+        phones=phones,
+    )
+
+
+def replace_contacts(db: Session, kind: str, values: list[str]) -> None:
+    db.query(NotificationContactRow).filter(NotificationContactRow.kind == kind).delete()
+    for value in values:
+        db.add(NotificationContactRow(kind=kind, value=value))
+
+
+@router.get("/statuses", response_model=list[StatusOut])
+def list_statuses(_: AccountRow = Depends(require_admin), db: Session = Depends(get_db)) -> list[StatusOut]:
+    rows = db.query(StatusRow).filter(StatusRow.deleted_at.is_(None)).order_by(StatusRow.id).all()
+    return [StatusOut(id=str(row.id), name=row.name, scope=row.scope or "work") for row in rows]
+
+
 @router.get("/settings", response_model=SettingOut)
 def get_settings(_: AccountRow = Depends(require_admin), db: Session = Depends(get_db)) -> SettingOut:
-    row = db.get(SettingRow, 1)
-    return SettingOut(companyPhone=row.company_phone if row else "")
+    return published_settings(db)
 
 
 @router.put("/settings", response_model=SettingOut)
@@ -768,17 +807,28 @@ def update_settings(
     _: AccountRow = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> SettingOut:
-    if body.companyPhone.strip() and len(phone_digits(body.companyPhone)) < 8:
+    emails = [item.strip() for item in body.emails or [] if item.strip()] if body.emails is not None else None
+    phones = [item.strip() for item in body.phones or [] if item.strip()] if body.phones is not None else None
+    if emails is not None and any("@" not in item or "." not in item.split("@")[-1] for item in emails):
+        fail(400, "Indica un correo válido.")
+    if phones is not None and any(len(phone_digits(item)) < 8 for item in phones):
+        fail(400, "Indica un celular válido.")
+    if body.companyPhone.strip() and phones is None and len(phone_digits(body.companyPhone)) < 8:
         fail(400, "Indica un teléfono válido.")
     row = db.get(SettingRow, 1)
     if row is None:
-        row = SettingRow(company_phone=body.companyPhone.strip())
+        row = SettingRow(company_phone="")
         db.add(row)
-    else:
+        db.flush()
+    if phones is not None:
+        replace_contacts(db, "phone", phones)
+        row.company_phone = phones[0] if phones else ""
+    elif body.companyPhone.strip():
         row.company_phone = body.companyPhone.strip()
+    if emails is not None:
+        replace_contacts(db, "email", emails)
     db.commit()
-    db.refresh(row)
-    return SettingOut(companyPhone=row.company_phone)
+    return published_settings(db)
 
 
 @router.post("/works/{work_id}/palmeta-changes", response_model=PalmetaChangeOut)
@@ -889,6 +939,7 @@ def update_account(
     row.palmeta_cost = body.palmetaCost if body.roleId == ROLE_SITE_LEAD else 0
     if body.password:
         row.password_hash = hash_password(body.password)
+    row.status_id = account_status_id(body.statusId)
     save_item_prices(db, row, body.itemPrices)
     db.commit()
     db.refresh(row)
@@ -908,6 +959,12 @@ def deactivate_account(
     db.commit()
     db.refresh(row)
     return priced_account(db, row)
+
+
+def account_status_id(value: str) -> int:
+    if value == str(STATUS_ACCOUNT_INACTIVE):
+        return STATUS_ACCOUNT_INACTIVE
+    return STATUS_ACCOUNT_ACTIVE
 
 
 def person_names(body: AccountBody | ProfileBody) -> tuple[str, str]:
