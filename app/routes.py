@@ -25,6 +25,7 @@ from app.notice_pdf import contract_pdf, palmeta_change_pdf
 from app.whatsapp import clean_phone, notify_palmeta_change, notify_work_contract
 from app.geocoding import AddressNotFound, locate_address, shorten_address, suggest_addresses
 from app.models import (
+    CODE_STATUS,
     ROLE_ADMIN,
     ROLE_HELPER,
     ROLE_SITE_LEAD,
@@ -77,6 +78,7 @@ from app.schemas import (
     WorkChargeOut,
     WorkChargesBody,
     WorkOut,
+    WorkStatusBody,
 )
 from app.security import create_token, hash_password, verify_password
 
@@ -468,6 +470,25 @@ def update_work_charges(
     if previous != charge_quantities(db, row.id):
         result.notice = deliver_work_contract(db, row, updated=True, previous=previous)
     return result
+
+
+@router.put("/works/{work_id}/status", response_model=WorkOut)
+def update_work_status(
+    work_id: str,
+    body: WorkStatusBody,
+    _: AccountRow = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> WorkOut:
+    row = db.get(WorkRow, num(work_id))
+    if row is None or row.deleted_at is not None:
+        fail(404, "Obra no encontrada.")
+    status_id = CODE_STATUS.get(body.status)
+    if status_id is None:
+        fail(400, "El estado de la obra no es válido.")
+    row.status_id = status_id
+    db.commit()
+    db.refresh(row)
+    return published_work(row, pending_counts(db), work_charges(db, row.id))
 
 
 @router.post("/works/{work_id}/deactivate", response_model=WorkOut)

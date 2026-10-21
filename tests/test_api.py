@@ -547,3 +547,19 @@ def test_work_contract_is_sent_to_the_client(monkeypatch) -> None:
     assert edited.json()["notice"] == "Obra actualizada. Se envió el contrato por WhatsApp al cliente."
     assert sent[-1]["name"] == "updated_scope_of_work"
     assert sent[-1]["parameters"] == ["Cliente Norte"]
+
+
+def test_admin_can_roll_the_work_status() -> None:
+    api = client()
+    headers = admin_headers(api)
+    working = api.put("/api/works/1/status", headers=headers, json={"status": "working"})
+    assert working.status_code == 200
+    assert working.json()["status"] == "working"
+    delivered = api.put("/api/works/1/status", headers=headers, json={"status": "completed"})
+    assert delivered.status_code == 200
+    assert delivered.json()["status"] == "completed"
+    invalid = api.put("/api/works/1/status", headers=headers, json={"status": "paused"})
+    assert invalid.status_code == 400
+    lead = api.post("/api/auth/login", json={"email": "lead.worker@vitrificados.local", "password": "demo-site"})
+    denied = api.put("/api/works/1/status", headers={"Authorization": f"Bearer {lead.json()['token']}"}, json={"status": "active"})
+    assert denied.status_code == 403

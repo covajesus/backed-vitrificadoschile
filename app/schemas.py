@@ -96,6 +96,10 @@ class WorkBody(BaseModel):
     charges: list[WorkChargeOut] = []
 
 
+class WorkStatusBody(BaseModel):
+    status: str
+
+
 class WorkOut(WorkBody):
     id: str
     status: str
