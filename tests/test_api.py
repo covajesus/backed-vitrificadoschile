@@ -174,6 +174,20 @@ def test_calendar_returns_every_day_of_the_month() -> None:
     assert marked["arrivals"][0]["workerName"] == "Maestro de obra"
 
 
+def test_assigning_a_site_lead_lists_them_on_the_work() -> None:
+    api = client()
+    headers = admin_headers(api)
+    saved = api.put("/api/works/1/crew", headers=headers, json={
+        "members": [{"workerId": "2", "startDate": "2026-10-05", "dayCount": 5}],
+    })
+    assert saved.status_code == 200
+    assert saved.json() == [{"workId": "1", "workerId": "2", "startDate": "2026-10-05", "dayCount": 5}]
+    listed = api.get("/api/assignments", headers=headers)
+    assert listed.status_code == 200
+    match = [item for item in listed.json() if item["workId"] == "1" and item["workerId"] == "2"]
+    assert match == [{"workId": "1", "workerId": "2", "startDate": "2026-10-05", "dayCount": 5}]
+
+
 def test_roles_statuses_and_schedules_are_numeric() -> None:
     api = client()
     with api.app.state.session_factory() as db:

@@ -78,7 +78,12 @@ def task_block_out(row: TaskBlockRow) -> TaskBlockOut:
 
 
 def assignment_out(row: WorkScheduleRow) -> AssignmentOut:
-    return AssignmentOut(workId=str(row.work_id), workerId=str(row.user_id))
+    return AssignmentOut(
+        workId=str(row.work_id),
+        workerId=str(row.user_id),
+        startDate=row.start_date or "",
+        dayCount=row.day_count or 0,
+    )
 
 
 def clock_moment(row: TimeClockRow) -> str:

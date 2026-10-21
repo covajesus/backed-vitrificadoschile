@@ -146,13 +146,22 @@ class RateBody(BaseModel):
     hourlyRate: float
 
 
+class CrewMemberBody(BaseModel):
+    workerId: str
+    startDate: str = ""
+    dayCount: int = 0
+
+
 class CrewBody(BaseModel):
-    workerIds: list[str]
+    workerIds: list[str] = []
+    members: list[CrewMemberBody] = []
 
 
 class AssignmentOut(BaseModel):
     workId: str
     workerId: str
+    startDate: str = ""
+    dayCount: int = 0
 
 
 class ArrivalBody(BaseModel):

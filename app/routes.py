@@ -63,6 +63,7 @@ from app.schemas import (
     ChargeItemBody,
     ChargeItemOut,
     CrewBody,
+    CrewMemberBody,
     ItemPriceOut,
     LoginBody,
     LoginResult,
@@ -546,16 +547,24 @@ def replace_crew(
     work_key = num(work_id)
     if db.get(WorkRow, work_key) is None:
         fail(404, "Obra no encontrada.")
-    unique = list(dict.fromkeys(body.workerIds))
-    user_ids: list[int] = []
-    for user_id in unique:
-        user_key = num(user_id)
+    members = body.members or [CrewMemberBody(workerId=item) for item in body.workerIds]
+    unique: dict[int, CrewMemberBody] = {}
+    for member in members:
+        user_key = num(member.workerId)
         person = db.get(UserRow, user_key)
         if person is None or person.deleted_at is not None:
             fail(400, "La dotación incluye un usuario que no existe.")
-        user_ids.append(person.id)
+        start = member.startDate.strip()
+        if start and re.fullmatch(r"\d{4}-\d{2}-\d{2}", start) is None:
+            fail(400, "La fecha de inicio no es válida.")
+        if member.dayCount < 0:
+            fail(400, "Los días de la asignación no pueden ser negativos.")
+        unique[person.id] = CrewMemberBody(workerId=str(person.id), startDate=start, dayCount=member.dayCount)
     db.query(WorkScheduleRow).filter(WorkScheduleRow.work_id == work_key).delete()
-    db.add_all(WorkScheduleRow(work_id=work_key, user_id=user_id) for user_id in user_ids)
+    db.add_all(
+        WorkScheduleRow(work_id=work_key, user_id=user_id, start_date=member.startDate, day_count=member.dayCount)
+        for user_id, member in unique.items()
+    )
     db.commit()
     rows = db.query(WorkScheduleRow).filter(WorkScheduleRow.work_id == work_key, WorkScheduleRow.deleted_at.is_(None)).all()
     return [assignment_out(row) for row in rows]

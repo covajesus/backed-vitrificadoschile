@@ -81,6 +81,8 @@ def ensure_measure_columns(engine) -> None:
     ensure_column(engine, "charge_items", "parent_id", "parent_id INTEGER NULL")
     ensure_column(engine, "statuses", "scope", "scope VARCHAR(20) NOT NULL DEFAULT 'work'")
     ensure_column(engine, "users", "status_id", "status_id INTEGER NULL")
+    ensure_column(engine, "work_schedules", "start_date", "start_date VARCHAR(10) NOT NULL DEFAULT ''")
+    ensure_column(engine, "work_schedules", "day_count", "day_count INTEGER NOT NULL DEFAULT 0")
 
 
 def ensure_hourly_rate(engine) -> None:
