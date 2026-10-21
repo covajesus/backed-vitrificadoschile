@@ -727,3 +727,54 @@ def test_admin_records_a_deduction_for_the_crew_period() -> None:
     text = pdf.content.decode("latin-1", errors="ignore")
     assert "Deducciones" in text
     assert "Sin deducciones" not in text
+
+
+def test_alerts_follow_pay_assignment_and_the_lead_finishing_a_work() -> None:
+    api = client()
+    admin = admin_headers(api)
+    lead_login = api.post("/api/auth/login", json={"email": "lead.worker@vitrificados.local", "password": "demo-site"})
+    lead = {"Authorization": f"Bearer {lead_login.json()['token']}"}
+    helper_login = api.post("/api/auth/login", json={"email": "helper.worker@vitrificados.local", "password": "demo-site"})
+    helper = {"Authorization": f"Bearer {helper_login.json()['token']}"}
+    assert api.get("/api/alerts", headers=admin).json() == []
+    denied = api.put("/api/works/1/status", headers=helper, json={"status": "completed"})
+    assert denied.status_code == 403
+    waiting = api.put("/api/works/1/status", headers=lead, json={"status": "working"})
+    assert waiting.status_code == 403
+    finished = api.put("/api/works/1/status", headers=lead, json={"status": "completed"})
+    assert finished.status_code == 200
+    assert finished.json()["status"] == "completed"
+    admin_alerts = api.get("/api/alerts", headers=admin).json()
+    assert admin_alerts[0]["kind"] == "completed"
+    assert "finalizada" in admin_alerts[0]["message"]
+    assert api.get("/api/alerts", headers=helper).json() == []
+    changed = api.put("/api/works/1/charges", headers=lead, json={"charges": [{"itemId": "1", "quantity": 4}]})
+    assert changed.status_code == 200
+    modified = api.get("/api/alerts", headers=admin).json()
+    assert modified[0]["kind"] == "modified"
+    assert "partidas" in modified[0]["message"]
+    receipt = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+    settlement = api.post("/api/settlements", headers=admin, json={
+        "workerId": "3",
+        "period": "2026-10",
+        "receiptDataUrl": receipt,
+        "items": [{"label": "Jornada", "amount": 54000}],
+    })
+    assert settlement.status_code == 200
+    paid = api.get("/api/alerts", headers=helper).json()
+    assert paid[0]["kind"] == "paid"
+    assert "Octubre de 2026" in paid[0]["message"]
+    removed = api.put("/api/works/1/crew", headers=admin, json={
+        "members": [{"workerId": "2"}],
+    })
+    assert removed.status_code == 200
+    gone = api.get("/api/alerts", headers=helper).json()
+    assert gone[0]["kind"] == "removed"
+    assert "quitaron" in gone[0]["message"]
+    added = api.put("/api/works/1/crew", headers=admin, json={
+        "members": [{"workerId": "2"}, {"workerId": "3"}],
+    })
+    assert added.status_code == 200
+    back = api.get("/api/alerts", headers=helper).json()
+    assert back[0]["kind"] == "assigned"
+    assert "agregaron" in back[0]["message"]

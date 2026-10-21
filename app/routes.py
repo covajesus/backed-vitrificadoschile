@@ -23,7 +23,7 @@ from app.domain import (
     task_block_error,
     work_error,
 )
-from app.notice_pdf import contract_pdf, palmeta_change_pdf, settlement_pdf
+from app.notice_pdf import contract_pdf, money, palmeta_change_pdf, period_label, settlement_pdf
 from app.whatsapp import clean_phone, notify_palmeta_change, notify_work_contract
 from app.geocoding import AddressNotFound, locate_address, shorten_address, suggest_addresses
 from app.models import (
@@ -36,6 +36,7 @@ from app.models import (
     STATUS_ACTIVE,
     STATUS_DELIVERED,
     AccountRow,
+    AlertRow,
     BankAccountTypeRow,
     BankRow,
     ChargeItemRow,
@@ -58,6 +59,7 @@ from app.models import (
 from app.presenters import account_out, arrival_out, assignment_out, charge_item_out, clock_coordinates, clock_moment, task_block_out, task_out, work_out
 from app.schemas import (
     AccountBody,
+    AlertOut,
     AccountOut,
     BankOut,
     ArrivalBody,
@@ -103,6 +105,20 @@ router = APIRouter(prefix="/api")
 
 def fail(status: int, detail: str) -> NoReturn:
     raise HTTPException(status_code=status, detail=detail)
+
+
+def add_alert(db: Session, user_id: int | None, kind: str, message: str) -> None:
+    db.add(AlertRow(user_id=user_id, kind=kind, message=message))
+
+
+def alert_out(row: AlertRow) -> AlertOut:
+    return AlertOut(
+        id=str(row.id),
+        userId=None if row.user_id is None else str(row.user_id),
+        kind=row.kind,
+        message=row.message,
+        createdAt=row.created_at.isoformat(),
+    )
 
 
 def field_role(account: AccountRow) -> bool:
@@ -489,6 +505,8 @@ def update_work_charges(
     db.refresh(row)
     result = published_work(row, pending_counts(db), work_charges(db, row.id))
     if previous != charge_quantities(db, row.id):
+        add_alert(db, None, "modified", f"{account.name} modificó las partidas de {row.client_name or row.names}.")
+        db.commit()
         result.notice = deliver_work_contract(db, row, updated=True, previous=previous)
     return result
 
@@ -497,9 +515,14 @@ def update_work_charges(
 def update_work_status(
     work_id: str,
     body: WorkStatusBody,
-    _: AccountRow = Depends(require_admin),
+    account: AccountRow = Depends(current_account),
     db: Session = Depends(get_db),
 ) -> WorkOut:
+    if account.rol_id == ROLE_SITE_LEAD:
+        if body.status != "completed":
+            fail(403, "Solo puedes marcar la obra como finalizada.")
+    elif account.rol_id != ROLE_ADMIN:
+        fail(403, "No puedes cambiar el estado de la obra.")
     row = db.get(WorkRow, num(work_id))
     if row is None or row.deleted_at is not None:
         fail(404, "Obra no encontrada.")
@@ -507,6 +530,8 @@ def update_work_status(
     if status_id is None:
         fail(400, "El estado de la obra no es válido.")
     row.status_id = status_id
+    if account.rol_id == ROLE_SITE_LEAD:
+        add_alert(db, None, "completed", f"{account.name} marcó {row.client_name or row.names} como finalizada.")
     db.commit()
     db.refresh(row)
     return published_work(row, pending_counts(db), work_charges(db, row.id))
@@ -554,8 +579,13 @@ def replace_crew(
     db: Session = Depends(get_db),
 ) -> list[AssignmentOut]:
     work_key = num(work_id)
-    if db.get(WorkRow, work_key) is None:
+    work = db.get(WorkRow, work_key)
+    if work is None:
         fail(404, "Obra no encontrada.")
+    previous_crew = {
+        row.user_id
+        for row in db.query(WorkScheduleRow).filter(WorkScheduleRow.work_id == work_key, WorkScheduleRow.deleted_at.is_(None)).all()
+    }
     members = body.members or [CrewMemberBody(workerId=item) for item in body.workerIds]
     unique: dict[int, CrewMemberBody] = {}
     for member in members:
@@ -592,6 +622,13 @@ def replace_crew(
         )
         for user_id, member in unique.items()
     )
+    work_name = work.client_name or work.names
+    for user_id in unique:
+        if user_id not in previous_crew:
+            add_alert(db, user_id, "assigned", f"Te agregaron a la obra {work_name}.")
+    for user_id in previous_crew:
+        if user_id not in unique:
+            add_alert(db, user_id, "removed", f"Te quitaron de la obra {work_name}.")
     db.commit()
     rows = db.query(WorkScheduleRow).filter(WorkScheduleRow.work_id == work_key, WorkScheduleRow.deleted_at.is_(None)).all()
     return [assignment_out(row) for row in rows]
@@ -1455,6 +1492,7 @@ def create_settlement(
         receipt=body.receiptDataUrl,
     )
     db.add(row)
+    add_alert(db, user.id, "paid", f"Se generó tu pago de {period_label(body.period)} por {money(total)}.")
     db.commit()
     db.refresh(row)
     return settlement_out(row)
@@ -1542,6 +1580,19 @@ def deduction_out(row: DeductionRow) -> DeductionOut:
         amount=row.amount,
         createdAt=row.created_at.isoformat(),
     )
+
+
+@router.get("/alerts")
+def list_alerts(
+    account: AccountRow = Depends(current_account),
+    db: Session = Depends(get_db),
+) -> list[AlertOut]:
+    query = db.query(AlertRow).order_by(AlertRow.id.desc())
+    if account.rol_id == ROLE_ADMIN:
+        query = query.filter(AlertRow.user_id.is_(None))
+    else:
+        query = query.filter(AlertRow.user_id == account.id)
+    return [alert_out(row) for row in query.all()]
 
 
 @router.get("/deductions")

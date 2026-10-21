@@ -341,6 +341,14 @@ class SettlementOut(SettlementBody):
     createdAt: str
 
 
+class AlertOut(BaseModel):
+    id: str
+    userId: str | None
+    kind: str
+    message: str
+    createdAt: str
+
+
 class DeductionBody(BaseModel):
     workerId: str
     period: str
