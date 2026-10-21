@@ -1155,6 +1155,20 @@ def delete_charge_item(item_id: str, _: AccountRow = Depends(require_admin), db:
     db.commit()
 
 
+def task_fields(body: TaskBody) -> tuple[str, str, int, int]:
+    name = body.name.strip()
+    if len(name) < 3:
+        fail(400, "El nombre debe tener al menos 3 caracteres.")
+    if body.kind not in {"site", "general"}:
+        fail(400, "El tipo de tarea no es válido.")
+    if body.amount < 0:
+        fail(400, "El valor de la tarea no puede ser negativo.")
+    extra = body.extraAmount if body.kind == "general" else 0
+    if extra < 0:
+        fail(400, "El valor extra no puede ser negativo.")
+    return name, body.kind, body.amount, extra
+
+
 @router.get("/tasks", response_model=list[TaskOut])
 def list_tasks(_: AccountRow = Depends(current_account), db: Session = Depends(get_db)) -> list[TaskOut]:
     rows = db.query(TaskRow).filter(TaskRow.deleted_at.is_(None)).order_by(TaskRow.id).all()
@@ -1163,10 +1177,8 @@ def list_tasks(_: AccountRow = Depends(current_account), db: Session = Depends(g
 
 @router.post("/tasks", response_model=TaskOut)
 def create_task(body: TaskBody, _: AccountRow = Depends(require_admin), db: Session = Depends(get_db)) -> TaskOut:
-    name = body.name.strip()
-    if len(name) < 3:
-        fail(400, "El nombre debe tener al menos 3 caracteres.")
-    row = TaskRow(names=name)
+    name, kind, amount, extra = task_fields(body)
+    row = TaskRow(names=name, kind=kind, amount=amount, extra_amount=extra)
     db.add(row)
     db.commit()
     db.refresh(row)
@@ -1183,10 +1195,11 @@ def update_task(
     row = db.get(TaskRow, num(task_id))
     if row is None or row.deleted_at is not None:
         fail(404, "Tarea no encontrada.")
-    name = body.name.strip()
-    if len(name) < 3:
-        fail(400, "El nombre debe tener al menos 3 caracteres.")
+    name, kind, amount, extra = task_fields(body)
     row.names = name
+    row.kind = kind
+    row.amount = amount
+    row.extra_amount = extra
     db.commit()
     db.refresh(row)
     return task_out(row)

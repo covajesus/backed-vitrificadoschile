@@ -239,11 +239,17 @@ class CalendarOut(BaseModel):
 
 class TaskBody(BaseModel):
     name: str
+    kind: str = "site"
+    amount: int = 0
+    extraAmount: int = 0
 
 
 class TaskOut(BaseModel):
     id: str
     name: str
+    kind: str = "site"
+    amount: int = 0
+    extraAmount: int = 0
 
 
 class TaskBlockBody(BaseModel):

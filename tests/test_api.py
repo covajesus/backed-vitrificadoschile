@@ -307,6 +307,16 @@ def test_tasks_drop_on_half_hours() -> None:
     assert tasks.status_code == 200
     names = {item["name"] for item in tasks.json()}
     assert names == {"Trabajo de Obra", "Extras"}
+    created = api.post("/api/tasks", headers=headers, json={
+        "name": "Traslado",
+        "kind": "general",
+        "amount": 2000,
+        "extraAmount": 1500,
+    })
+    assert created.status_code == 200
+    assert created.json()["kind"] == "general"
+    assert created.json()["amount"] == 2000
+    assert created.json()["extraAmount"] == 1500
     task_id = next(item["id"] for item in tasks.json() if item["name"] == "Trabajo de Obra")
     rejected = api.post("/api/task-blocks", headers=headers, json={
         "workId": "1",

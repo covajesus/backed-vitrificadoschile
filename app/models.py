@@ -177,6 +177,9 @@ class TaskRow(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     names: Mapped[str] = mapped_column(String(120))
+    kind: Mapped[str] = mapped_column(String(20), default="site")
+    amount: Mapped[int] = mapped_column(Integer, default=0)
+    extra_amount: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

@@ -63,7 +63,13 @@ def charge_item_out(row: ChargeItemRow, lines: list[ChargeItemRow] | None = None
 
 
 def task_out(row: TaskRow) -> TaskOut:
-    return TaskOut(id=str(row.id), name=row.names)
+    return TaskOut(
+        id=str(row.id),
+        name=row.names,
+        kind=row.kind if row.kind in {"site", "general"} else "site",
+        amount=row.amount or 0,
+        extraAmount=row.extra_amount or 0,
+    )
 
 
 def task_block_out(row: TaskBlockRow) -> TaskBlockOut:
