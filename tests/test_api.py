@@ -462,7 +462,9 @@ def test_contract_pdf_lists_the_agreed_partidas() -> None:
     assert "El inicio de los trabajos en el inmueble importa aceptación" in initial_text
     assert "Retape" in updated_text
     assert "12 a 4" in updated_text
-    assert "La continuación de los trabajos importa aceptación" in updated_text
+    assert "ACTUALIZACIÓN DE CONTRATO" in updated_text
+    assert "vuelven a iniciarse" in updated_text
+    assert "aceptada automáticamente" in updated_text
 
 
 def test_contract_partidas_use_one_line_each() -> None:
@@ -523,7 +525,7 @@ def test_work_contract_is_sent_to_the_client(monkeypatch) -> None:
     updated = api.put("/api/works/1/charges", headers=lead, json={"charges": [{"itemId": "1", "quantity": 4}]})
     assert updated.status_code == 200
     assert updated.json()["notice"] == "Partidas actualizadas. Se envió el contrato por WhatsApp al cliente."
-    assert sent[1]["name"] == "scope_of_work"
+    assert sent[1]["name"] == "updated_scope_of_work"
     assert sent[1]["parameters"] == ["Inmobiliaria Dominicos"]
     assert sent[1]["document"][1].startswith(b"%PDF")
     edited = api.put(f"/api/works/{created.json()['id']}", headers=headers, json={
@@ -543,5 +545,5 @@ def test_work_contract_is_sent_to_the_client(monkeypatch) -> None:
     })
     assert edited.status_code == 200
     assert edited.json()["notice"] == "Obra actualizada. Se envió el contrato por WhatsApp al cliente."
-    assert sent[-1]["name"] == "scope_of_work"
+    assert sent[-1]["name"] == "updated_scope_of_work"
     assert sent[-1]["parameters"] == ["Cliente Norte"]

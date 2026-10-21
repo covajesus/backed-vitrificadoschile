@@ -103,6 +103,7 @@ def send_text(phone: str, text: str) -> dict:
 
 
 CONTRACT_TEMPLATE = "scope_of_work"
+UPDATED_CONTRACT_TEMPLATE = "updated_scope_of_work"
 
 
 def upload_pdf(filename: str, content: bytes) -> dict:
@@ -225,7 +226,7 @@ def notify_work_contract(
         return f"{saved}. No se envió el contrato porque WhatsApp no está configurado."
     template = send_template(
         client_phone,
-        CONTRACT_TEMPLATE,
+        UPDATED_CONTRACT_TEMPLATE if updated else CONTRACT_TEMPLATE,
         [client_name],
         document=(f"contrato-obra-{work_id}.pdf", pdf),
     )

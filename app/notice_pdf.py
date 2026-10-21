@@ -76,9 +76,10 @@ def html_text(value: str) -> str:
 def acceptance_clause(*, updated: bool) -> str:
     if updated:
         return (
-            "<b>Quinto: Aceptación de la modificación.</b> La <b>continuación de los trabajos</b> importa "
-            "<b>aceptación</b> de las partidas y cantidades actualizadas, las cuales reemplazan a las "
-            "pactadas con anterioridad y pasan a ser las únicas exigibles entre las partes."
+            "<b>Quinto: Aceptación de la actualización.</b> Si los trabajos <b>vuelven a iniciarse</b>, "
+            "esta actualización se tiene por <b>aceptada automáticamente</b>. Las partidas y cantidades "
+            "aquí indicadas reemplazan a las pactadas con anterioridad y pasan a ser las únicas exigibles "
+            "entre las partes."
         )
     return (
         "<b>Quinto: Aceptación.</b> El <b>inicio de los trabajos</b> en el inmueble importa "
@@ -174,7 +175,7 @@ def contract_pdf(
     y = pdf.get_y()
     pdf.line(pdf.l_margin, y, pdf.w - pdf.r_margin, y)
     pdf.ln(6)
-    title = "MODIFICACIÓN DE CONTRATO DE PRESTACIÓN DE SERVICIOS" if updated else "CONTRATO DE PRESTACIÓN DE SERVICIOS"
+    title = "ACTUALIZACIÓN DE CONTRATO DE PRESTACIÓN DE SERVICIOS" if updated else "CONTRATO DE PRESTACIÓN DE SERVICIOS"
     pdf.set_font(font, "B", 12)
     pdf.set_text_color(0, 0, 0)
     pdf.set_x(pdf.l_margin)
