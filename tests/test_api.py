@@ -462,6 +462,7 @@ def test_contract_pdf_lists_the_agreed_charges() -> None:
     initial_text = contract_text(initial)
     updated_text = contract_text(updated)
     assert initial.startswith(b"%PDF")
+    assert b"/DCTDecode" in initial
     assert "Cliente Norte" in initial_text
     assert "Retape" in initial_text
     assert "12" in initial_text

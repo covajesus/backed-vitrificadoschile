@@ -12,6 +12,9 @@ MONTHS = (
 
 
 def logo_path() -> Path | None:
+    bundled = Path(__file__).resolve().parent / "assets" / "logo.jpg"
+    if bundled.is_file():
+        return bundled
     root = Path(__file__).resolve().parents[2]
     for relative in (
         Path("frontend") / "src" / "assets" / "logo.png",
