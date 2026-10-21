@@ -78,6 +78,7 @@ from app.schemas import (
     SettingOut,
     StatusOut,
     TaskBlockBody,
+    TaskBlockMoveBody,
     TaskBlockOut,
     TaskBody,
     TaskOut,
@@ -1017,7 +1018,7 @@ def span_minutes(value: str) -> int | None:
     return minutes_of(value)
 
 
-def block_overlap(db: Session, body: TaskBlockBody, ignore_id: int | None) -> bool:
+def block_overlap(db: Session, body: TaskBlockBody, ignore_id: int | None, ignore_ids: set[int] | None = None) -> bool:
     start = span_minutes(body.start)
     end = span_minutes(body.end)
     if start is None or end is None:
@@ -1029,6 +1030,8 @@ def block_overlap(db: Session, body: TaskBlockBody, ignore_id: int | None) -> bo
     )
     for row in query:
         if ignore_id is not None and row.id == ignore_id:
+            continue
+        if ignore_ids is not None and row.id in ignore_ids:
             continue
         other_start = span_minutes(row.start_time)
         other_end = span_minutes(row.end_time)
@@ -1252,6 +1255,51 @@ def create_task_block(
     db: Session = Depends(get_db),
 ) -> TaskBlockOut:
     return save_task_block(body, None, db)
+
+
+@router.put("/task-blocks", response_model=list[TaskBlockOut])
+def move_task_blocks(
+    body: TaskBlockMoveBody,
+    _: AccountRow = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> list[TaskBlockOut]:
+    if len(body.blocks) == 0:
+        fail(400, "No hay tareas para mover.")
+    rows = []
+    for item in body.blocks:
+        row = db.get(TaskBlockRow, num(item.id))
+        if row is None or row.deleted_at is not None:
+            fail(404, "La tarea de ese horario no existe.")
+        rows.append(row)
+    moving = {row.id for row in rows}
+    spans = []
+    for item in body.blocks:
+        message = task_block_error(item.start, item.end)
+        if message:
+            fail(400, message)
+        start = span_minutes(item.start)
+        end = span_minutes(item.end)
+        if start is None or end is None:
+            fail(400, "Esa hora ya tiene una tarea.")
+        spans.append((start, end))
+        if block_overlap(db, item, None, moving):
+            fail(400, "Esa hora ya tiene una tarea.")
+    for index, span in enumerate(spans):
+        for other in spans[index + 1:]:
+            if ranges_overlap(span[0], span[1], other[0], other[1]):
+                fail(400, "Esa hora ya tiene una tarea.")
+    saved = []
+    for item, row in zip(body.blocks, rows, strict=True):
+        row.work_id = num(item.workId)
+        row.task_id = num(item.taskId)
+        row.block_date = item.date
+        row.start_time = item.start
+        row.end_time = item.end
+        saved.append(row)
+    db.commit()
+    for row in saved:
+        db.refresh(row)
+    return [task_block_out(row) for row in saved]
 
 
 @router.put("/task-blocks/{block_id}", response_model=TaskBlockOut)

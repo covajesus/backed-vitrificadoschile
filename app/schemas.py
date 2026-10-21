@@ -264,6 +264,14 @@ class TaskBlockOut(TaskBlockBody):
     id: str
 
 
+class TaskBlockMove(TaskBlockOut):
+    pass
+
+
+class TaskBlockMoveBody(BaseModel):
+    blocks: list[TaskBlockMove]
+
+
 class ProfileBody(BaseModel):
     name: str
     firstName: str = ""

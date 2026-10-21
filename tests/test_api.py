@@ -354,6 +354,39 @@ def test_tasks_drop_on_half_hours() -> None:
     assert overlap.status_code == 400
 
 
+def test_moving_task_blocks_swaps_their_hours() -> None:
+    api = client()
+    headers = admin_headers(api)
+    tasks = api.get("/api/tasks", headers=headers).json()
+    site = next(item["id"] for item in tasks if item["name"] == "Trabajo de Obra")
+    lunch = next(item["id"] for item in tasks if item["name"] == "Almuerzo")
+    first = api.post("/api/task-blocks", headers=headers, json={
+        "workId": "1",
+        "taskId": site,
+        "date": "2026-10-05",
+        "start": "10:00",
+        "end": "11:00",
+    })
+    second = api.post("/api/task-blocks", headers=headers, json={
+        "workId": "1",
+        "taskId": lunch,
+        "date": "2026-10-05",
+        "start": "12:00",
+        "end": "13:00",
+    })
+    assert first.status_code == 200
+    assert second.status_code == 200
+    moved = api.put("/api/task-blocks", headers=headers, json={"blocks": [
+        {**first.json(), "start": "12:00", "end": "13:00"},
+        {**second.json(), "start": "10:00", "end": "11:00"},
+    ]})
+    assert moved.status_code == 200
+    listed = {item["id"]: item for item in api.get("/api/task-blocks", headers=headers).json()}
+    assert listed[first.json()["id"]]["start"] == "12:00"
+    assert listed[second.json()["id"]]["start"] == "10:00"
+    assert listed[second.json()["id"]]["taskId"] == lunch
+
+
 def test_palmeta_change_only_increases_and_waits_for_the_client() -> None:
     api = client()
     admin = admin_headers(api)
