@@ -138,9 +138,11 @@ def settlement_pdf(
     for label, amount in haberes:
         write_line(pdf, f"{label}    {money(amount)}")
     if deductions:
+        pdf.set_text_color(225, 29, 72)
         write_line(pdf, "Deducciones", bold=True)
         for label, amount in deductions:
-            write_line(pdf, f"{label}    {money(abs(amount))}")
+            write_line(pdf, f"{label}    -{money(abs(amount))}")
+        pdf.set_text_color(0, 0, 0)
     else:
         write_line(pdf, "Sin deducciones.")
     write_line(pdf, f"Total a pagar: {money(total)}", bold=True)
