@@ -323,6 +323,24 @@ class PalmetaChangeOut(BaseModel):
     message: str
 
 
+class SettlementItemOut(BaseModel):
+    label: str
+    amount: int
+
+
+class SettlementBody(BaseModel):
+    workerId: str
+    period: str
+    receiptDataUrl: str
+    items: list[SettlementItemOut] = []
+
+
+class SettlementOut(SettlementBody):
+    id: str
+    total: int
+    createdAt: str
+
+
 class PaymentOut(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 

@@ -263,6 +263,20 @@ class WorkItemRow(Base):
     quantity: Mapped[int] = mapped_column(Integer, default=0)
 
 
+class SettlementRow(Base):
+    __tablename__ = "settlements"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    period: Mapped[str] = mapped_column(String(7))
+    items: Mapped[str] = mapped_column(Text, default="[]")
+    total: Mapped[int] = mapped_column(Integer, default=0)
+    receipt: Mapped[str] = mapped_column(long_text(), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
 class PalmetaChangeRow(Base):
     __tablename__ = "palmeta_changes"
 

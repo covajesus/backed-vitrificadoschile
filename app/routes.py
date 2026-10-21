@@ -1,4 +1,5 @@
 import calendar
+import json
 import math
 import re
 from typing import NoReturn
@@ -6,7 +7,7 @@ from typing import NoReturn
 import os
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import PlainTextResponse, Response
 from sqlalchemy.orm import Session
 
 from app.deps import current_account, get_db, require_admin
@@ -22,7 +23,7 @@ from app.domain import (
     task_block_error,
     work_error,
 )
-from app.notice_pdf import contract_pdf, palmeta_change_pdf
+from app.notice_pdf import contract_pdf, palmeta_change_pdf, settlement_pdf
 from app.whatsapp import clean_phone, notify_palmeta_change, notify_work_contract
 from app.geocoding import AddressNotFound, locate_address, shorten_address, suggest_addresses
 from app.models import (
@@ -41,6 +42,7 @@ from app.models import (
     NotificationContactRow,
     PalmetaChangeRow,
     SettingRow,
+    SettlementRow,
     StatusRow,
     TaskBlockRow,
     TaskRow,
@@ -76,6 +78,9 @@ from app.schemas import (
     ProfileBody,
     SettingBody,
     SettingOut,
+    SettlementBody,
+    SettlementItemOut,
+    SettlementOut,
     StatusOut,
     TaskBlockBody,
     TaskBlockMoveBody,
@@ -1366,6 +1371,149 @@ def save_task_block(body: TaskBlockBody, block_id: int | None, db: Session) -> T
     db.commit()
     db.refresh(row)
     return task_block_out(row)
+
+
+def settlement_payload(body: SettlementBody, db: Session) -> tuple[UserRow, str, int]:
+    if re.fullmatch(r"\d{4}-(0[1-9]|1[0-2])", body.period) is None:
+        fail(400, "Indica el periodo con formato AAAA-MM.")
+    if not body.receiptDataUrl.startswith("data:image/"):
+        fail(400, "Adjunta la imagen de la transferencia.")
+    try:
+        user_id = int(body.workerId)
+    except ValueError:
+        fail(400, "El trabajador no existe.")
+    user = db.get(UserRow, user_id)
+    if user is None or user.deleted_at is not None or user.rol_id not in {ROLE_SITE_LEAD, ROLE_HELPER}:
+        fail(400, "El trabajador no existe.")
+    cleaned: list[dict[str, str | int]] = []
+    for item in body.items:
+        label = item.label.strip()
+        if not label or item.amount < 0:
+            fail(400, "El monto no puede ser negativo.")
+        cleaned.append({"label": label, "amount": int(item.amount)})
+    total = sum(int(item["amount"]) for item in cleaned)
+    return user, json.dumps(cleaned, ensure_ascii=False), total
+
+
+def settlement_out(row: SettlementRow) -> SettlementOut:
+    raw = json.loads(row.items or "[]")
+    items = [
+        SettlementItemOut(label=str(item.get("label", "")), amount=int(item.get("amount", 0)))
+        for item in raw
+    ]
+    return SettlementOut(
+        id=str(row.id),
+        workerId=str(row.user_id),
+        period=row.period,
+        receiptDataUrl=row.receipt,
+        items=items,
+        total=row.total,
+        createdAt=row.created_at.isoformat(),
+    )
+
+
+def settlement_items(row: SettlementRow) -> list[tuple[str, int]]:
+    raw = json.loads(row.items or "[]")
+    return [(str(item.get("label", "")), int(item.get("amount", 0))) for item in raw]
+
+
+def visible_settlement(account: AccountRow, row: SettlementRow) -> bool:
+    return account.rol_id == ROLE_ADMIN or row.user_id == account.id
+
+
+@router.get("/settlements")
+def list_settlements(
+    account: AccountRow = Depends(current_account),
+    db: Session = Depends(get_db),
+) -> list[SettlementOut]:
+    rows = (
+        db.query(SettlementRow)
+        .filter(SettlementRow.deleted_at.is_(None))
+        .order_by(SettlementRow.id.desc())
+        .all()
+    )
+    if field_role(account):
+        rows = [row for row in rows if row.user_id == account.id]
+    return [settlement_out(row) for row in rows]
+
+
+@router.post("/settlements")
+def create_settlement(
+    body: SettlementBody,
+    _: AccountRow = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> SettlementOut:
+    user, items, total = settlement_payload(body, db)
+    row = SettlementRow(
+        user_id=user.id,
+        period=body.period,
+        items=items,
+        total=total,
+        receipt=body.receiptDataUrl,
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return settlement_out(row)
+
+
+@router.put("/settlements/{settlement_id}")
+def update_settlement(
+    settlement_id: int,
+    body: SettlementBody,
+    _: AccountRow = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> SettlementOut:
+    row = db.get(SettlementRow, settlement_id)
+    if row is None or row.deleted_at is not None:
+        fail(404, "La liquidación no existe.")
+    user, items, total = settlement_payload(body, db)
+    row.user_id = user.id
+    row.period = body.period
+    row.items = items
+    row.total = total
+    row.receipt = body.receiptDataUrl
+    db.commit()
+    db.refresh(row)
+    return settlement_out(row)
+
+
+@router.delete("/settlements/{settlement_id}")
+def delete_settlement(
+    settlement_id: int,
+    _: AccountRow = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> dict[str, bool]:
+    row = db.get(SettlementRow, settlement_id)
+    if row is None or row.deleted_at is not None:
+        fail(404, "La liquidación no existe.")
+    row.deleted_at = utcnow()
+    db.commit()
+    return {"ok": True}
+
+
+@router.get("/settlements/{settlement_id}/pdf")
+def download_settlement(
+    settlement_id: int,
+    account: AccountRow = Depends(current_account),
+    db: Session = Depends(get_db),
+) -> Response:
+    row = db.get(SettlementRow, settlement_id)
+    if row is None or row.deleted_at is not None or not visible_settlement(account, row):
+        fail(404, "La liquidación no existe.")
+    user = db.get(UserRow, row.user_id)
+    data = settlement_pdf(
+        person=user.name if user is not None else "",
+        period=row.period,
+        items=settlement_items(row),
+        total=row.total,
+        receipt=row.receipt,
+    )
+    return Response(
+        content=data,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="liquidacion-{row.period}.pdf"'},
+    )
 
 
 @router.get("/whatsapp/webhook")

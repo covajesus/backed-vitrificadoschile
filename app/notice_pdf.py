@@ -1,3 +1,6 @@
+import base64
+import os
+import tempfile
 from datetime import date
 from pathlib import Path
 
@@ -65,6 +68,77 @@ def work_day_label(value: str) -> str:
             if part.isdigit() and int(part) in {0, 1, 2, 3, 4, 5, 6}:
                 chosen.append(int(part))
     return ", ".join(label for day, label in WEEK_DAYS if day in chosen)
+
+
+def period_label(period: str) -> str:
+    year, month = period.split("-")
+    index = int(month) - 1
+    if 0 <= index < len(MONTHS):
+        return f"{MONTHS[index]} {year}"
+    return period
+
+
+def embed_receipt(pdf: FPDF, receipt: str) -> None:
+    if not receipt.startswith("data:image/"):
+        return
+    header, _, encoded = receipt.partition(",")
+    if not encoded:
+        return
+    try:
+        raw = base64.b64decode(encoded)
+    except Exception:
+        return
+    suffix = ".png" if "png" in header else ".jpg"
+    handle = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+    try:
+        handle.write(raw)
+        handle.close()
+        pdf.ln(4)
+        write_line(pdf, "Comprobante de transferencia", bold=True)
+        pdf.image(handle.name, w=90)
+    except Exception:
+        return
+    finally:
+        try:
+            os.remove(handle.name)
+        except OSError:
+            pass
+
+
+def settlement_pdf(
+    *,
+    person: str,
+    period: str,
+    items: list[tuple[str, int]],
+    total: int,
+    receipt: str,
+) -> bytes:
+    pdf = FPDF()
+    pdf.set_compression(False)
+    pdf.set_auto_page_break(auto=True, margin=18)
+    pdf.set_margins(18, 16, 18)
+    pdf.add_page()
+    mark = logo_path()
+    if mark is not None:
+        try:
+            pdf.image(str(mark), x=18, y=12, w=60)
+            pdf.set_y(32)
+        except Exception:
+            pdf.set_y(16)
+    else:
+        pdf.set_y(16)
+    write_line(pdf, "Liquidación de sueldo", bold=True, size=16)
+    write_line(pdf, f"Trabajador: {person}")
+    write_line(pdf, f"Periodo: {period_label(period)}")
+    write_line(pdf, "Haberes", bold=True)
+    if not items:
+        write_line(pdf, "Sin haberes en el periodo.")
+    for label, amount in items:
+        write_line(pdf, f"{label}    {money(amount)}")
+    write_line(pdf, "Sin deducciones.")
+    write_line(pdf, f"Total a pagar: {money(total)}", bold=True)
+    embed_receipt(pdf, receipt)
+    return bytes(pdf.output())
 
 
 def issue_date() -> str:

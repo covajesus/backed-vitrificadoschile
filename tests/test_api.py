@@ -654,3 +654,40 @@ def test_admin_can_roll_the_work_status() -> None:
     lead = api.post("/api/auth/login", json={"email": "lead.worker@vitrificados.local", "password": "demo-site"})
     denied = api.put("/api/works/1/status", headers={"Authorization": f"Bearer {lead.json()['token']}"}, json={"status": "active"})
     assert denied.status_code == 403
+
+
+def test_settlement_pdf_lists_pay_items_without_deductions() -> None:
+    api = client()
+    headers = admin_headers(api)
+    receipt = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+    created = api.post("/api/settlements", headers=headers, json={
+        "workerId": "2",
+        "period": "2026-10",
+        "receiptDataUrl": receipt,
+        "items": [{"label": "Jornada 2026-10-05", "amount": 76500}],
+    })
+    assert created.status_code == 200
+    body = created.json()
+    assert body["total"] == 76500
+    assert body["workerId"] == "2"
+    lead = api.post("/api/auth/login", json={"email": "lead.worker@vitrificados.local", "password": "demo-site"})
+    lead_headers = {"Authorization": f"Bearer {lead.json()['token']}"}
+    helper = api.post("/api/auth/login", json={"email": "helper.worker@vitrificados.local", "password": "demo-site"})
+    helper_headers = {"Authorization": f"Bearer {helper.json()['token']}"}
+    assert api.post("/api/settlements", headers=lead_headers, json=created.json()).status_code == 403
+    own = api.get("/api/settlements", headers=lead_headers)
+    assert own.status_code == 200
+    assert [row["id"] for row in own.json()] == [body["id"]]
+    assert api.get("/api/settlements", headers=helper_headers).json() == []
+    pdf = api.get(f"/api/settlements/{body['id']}/pdf", headers=lead_headers)
+    assert pdf.status_code == 200
+    assert pdf.content.startswith(b"%PDF")
+    text = pdf.content.decode("latin-1", errors="ignore")
+    assert "Jornada 2026-10-05" in text
+    assert "Sin deducciones" in text
+    assert "Descuento" not in text
+    assert api.get(f"/api/settlements/{body['id']}/pdf", headers=helper_headers).status_code == 404
+    assert api.delete(f"/api/settlements/{body['id']}", headers=lead_headers).status_code == 403
+    removed = api.delete(f"/api/settlements/{body['id']}", headers=headers)
+    assert removed.status_code == 200
+    assert api.get(f"/api/settlements/{body['id']}/pdf", headers=headers).status_code == 404
