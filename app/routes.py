@@ -1161,12 +1161,11 @@ def task_fields(body: TaskBody) -> tuple[str, str, int, int]:
         fail(400, "El nombre debe tener al menos 3 caracteres.")
     if body.kind not in {"site", "general"}:
         fail(400, "El tipo de tarea no es válido.")
+    if body.kind == "site":
+        return name, "site", 0, 0
     if body.amount < 0:
-        fail(400, "El valor de la tarea no puede ser negativo.")
-    extra = body.extraAmount if body.kind == "general" else 0
-    if extra < 0:
-        fail(400, "El valor extra no puede ser negativo.")
-    return name, body.kind, body.amount, extra
+        fail(400, "El valor no puede ser negativo.")
+    return name, "general", body.amount, 0
 
 
 @router.get("/tasks", response_model=list[TaskOut])
