@@ -11,7 +11,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.models import Base
 from app.routes import login_account, router
-from app.seed import ensure_bank_account_types, ensure_banks, ensure_charge_items, ensure_roles, ensure_setting, ensure_statuses, ensure_tasks, seed_charge_items, seed_if_empty, seed_tasks
+from app.seed import ensure_bank_account_types, ensure_banks, ensure_charge_items, ensure_measure_units, ensure_roles, ensure_setting, ensure_statuses, ensure_tasks, seed_charge_items, seed_if_empty, seed_tasks
 from app.whatsapp import load_env_file
 
 SECRET = "vitrificados-chile-dev-secret"
@@ -66,6 +66,8 @@ def ensure_measure_columns(engine) -> None:
     ensure_column(engine, "works", "square_meters", "square_meters FLOAT NOT NULL DEFAULT 0")
     ensure_column(engine, "works", "client_name", "client_name VARCHAR(160) NOT NULL DEFAULT ''")
     ensure_column(engine, "works", "client_phone", "client_phone VARCHAR(30) NOT NULL DEFAULT ''")
+    ensure_column(engine, "works", "apartment", "apartment VARCHAR(40) NOT NULL DEFAULT ''")
+    ensure_column(engine, "works", "crew_note", "crew_note VARCHAR(500) NOT NULL DEFAULT ''")
     ensure_column(engine, "users", "phone", "phone VARCHAR(30) NOT NULL DEFAULT ''")
     ensure_column(engine, "users", "address", "address VARCHAR(300) NOT NULL DEFAULT ''")
     ensure_column(engine, "users", "document_id", "document_id VARCHAR(40) NOT NULL DEFAULT ''")
@@ -78,7 +80,9 @@ def ensure_measure_columns(engine) -> None:
     ensure_column(engine, "users", "bank_id", "bank_id INTEGER NULL")
     ensure_column(engine, "users", "account_type_id", "account_type_id INTEGER NULL")
     ensure_column(engine, "charge_items", "kind", "kind VARCHAR(20) NOT NULL DEFAULT 'simple'")
+    ensure_column(engine, "charge_items", "unit_id", "unit_id INTEGER NULL")
     ensure_column(engine, "charge_items", "parent_id", "parent_id INTEGER NULL")
+    ensure_column(engine, "charge_items", "position", "position INTEGER NOT NULL DEFAULT 0")
     ensure_column(engine, "statuses", "scope", "scope VARCHAR(20) NOT NULL DEFAULT 'work'")
     ensure_column(engine, "users", "status_id", "status_id INTEGER NULL")
     ensure_column(engine, "work_schedules", "start_date", "start_date VARCHAR(10) NOT NULL DEFAULT ''")
@@ -143,6 +147,42 @@ def drop_legacy_tables(engine) -> None:
             connection.execute(text("SET FOREIGN_KEY_CHECKS=1"))
 
 
+def ensure_decimal_quantity(engine) -> None:
+    inspector = inspect(engine)
+    if "work_items" not in inspector.get_table_names():
+        return
+    columns = {column["name"]: column for column in inspector.get_columns("work_items")}
+    quantity = columns.get("quantity")
+    if quantity is None or "int" not in str(quantity["type"]).lower():
+        return
+    if engine.dialect.name != "mysql":
+        return
+    with engine.begin() as connection:
+        connection.execute(text("ALTER TABLE work_items MODIFY quantity DOUBLE NOT NULL DEFAULT 0"))
+
+
+def link_saved_units(engine) -> None:
+    inspector = inspect(engine)
+    if "charge_items" not in inspector.get_table_names() or "measure_units" not in inspector.get_table_names():
+        return
+    columns = {column["name"] for column in inspector.get_columns("charge_items")}
+    if "unit" not in columns or "unit_id" not in columns:
+        return
+    statement = (
+        "UPDATE charge_items "
+        "INNER JOIN measure_units ON measure_units.name = charge_items.unit "
+        "SET charge_items.unit_id = measure_units.id "
+        "WHERE charge_items.unit_id IS NULL AND charge_items.unit <> ''"
+        if engine.dialect.name == "mysql"
+        else
+        "UPDATE charge_items SET unit_id = ("
+        "SELECT measure_units.id FROM measure_units WHERE measure_units.name = charge_items.unit"
+        ") WHERE unit_id IS NULL AND unit <> ''"
+    )
+    with engine.begin() as connection:
+        connection.execute(text(statement))
+
+
 def create_app(database_url: str | None = None, secret: str = SECRET) -> FastAPI:
     load_env_file()
     if database_url is None:
@@ -162,6 +202,7 @@ def create_app(database_url: str | None = None, secret: str = SECRET) -> FastAPI
     ensure_hourly_rate(engine)
     ensure_work_days(engine)
     ensure_measure_columns(engine)
+    ensure_decimal_quantity(engine)
     if database_url.startswith("sqlite"):
         with engine.begin() as connection:
             connection.execute(text("CREATE INDEX IF NOT EXISTS ix_time_clocks_work_date ON time_clocks (work_id, arrive_date)"))
@@ -175,8 +216,10 @@ def create_app(database_url: str | None = None, secret: str = SECRET) -> FastAPI
         ensure_statuses(db)
         ensure_roles(db)
         ensure_banks(db)
+        ensure_measure_units(db)
         ensure_bank_account_types(db)
         ensure_setting(db)
+    link_saved_units(engine)
 
     app = FastAPI(title="Vitrificados Chile")
     app.state.session_factory = session_factory

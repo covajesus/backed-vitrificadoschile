@@ -16,6 +16,8 @@ def work_out(row: WorkRow, pending_palmeta_count: int | None = None, charges: li
         squareMeters=row.square_meters,
         clientName=row.client_name,
         clientPhone=row.client_phone,
+        apartment=row.apartment or "",
+        crewNote=row.crew_note or "",
         status=row.status,
         latitude=row.latitude,
         longitude=row.longitude,
@@ -53,12 +55,28 @@ def account_out(row: UserRow, item_prices: list[ItemPriceOut] | None = None) -> 
     )
 
 
-def charge_item_out(row: ChargeItemRow, lines: list[ChargeItemRow] | None = None) -> ChargeItemOut:
+def charge_item_out(
+    row: ChargeItemRow,
+    lines: list[ChargeItemRow] | None = None,
+    units: dict[int | None, str] | None = None,
+) -> ChargeItemOut:
+    names = units or {}
     return ChargeItemOut(
         id=str(row.id),
         name=row.name,
+        unitId="" if row.unit_id is None else str(row.unit_id),
+        unit=names.get(row.unit_id, ""),
         kind=row.kind or "simple",
-        lines=[ChargeLineOut(id=str(line.id), name=line.name) for line in (lines or [])],
+        position=row.position or 0,
+        lines=[
+            ChargeLineOut(
+                id=str(line.id),
+                name=line.name,
+                unitId="" if line.unit_id is None else str(line.unit_id),
+                unit=names.get(line.unit_id, ""),
+            )
+            for line in (lines or [])
+        ],
     )
 
 

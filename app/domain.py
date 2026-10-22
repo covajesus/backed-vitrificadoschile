@@ -44,6 +44,8 @@ def work_error(
     square_meters: float = 0,
     client_name: str = "",
     client_phone: str = "",
+    apartment: str = "",
+    crew_note: str = "",
 ) -> str | None:
     if len(name.strip()) < 3:
         return "El nombre debe tener al menos 3 caracteres."
@@ -65,7 +67,18 @@ def work_error(
         return "Indica el nombre del cliente."
     if len(phone_digits(client_phone)) < 8:
         return "Indica el teléfono del cliente."
+    if len(apartment.strip()) > 40:
+        return "El número de departamento es demasiado largo."
+    if len(crew_note.strip()) > 500:
+        return "El aviso para la cuadrilla es demasiado largo."
     return None
+
+
+def format_quantity(value: float) -> str:
+    rounded = round(float(value), 2)
+    if rounded == int(rounded):
+        return str(int(rounded))
+    return f"{rounded:.2f}".rstrip("0").rstrip(".")
 
 
 def valid_work_days(value: str) -> bool:

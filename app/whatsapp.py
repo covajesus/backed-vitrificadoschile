@@ -3,7 +3,7 @@ from pathlib import Path
 
 import httpx
 
-from app.domain import phone_digits
+from app.domain import format_quantity, phone_digits
 
 GRAPH_VERSION = "v22.0"
 DEFAULT_PHONE_NUMBER_ID = "790586727468909"
@@ -52,8 +52,8 @@ def clean_whatsapp_text(value: str, *, keep_lines: bool = False) -> str:
     return text.strip()[:1024] or "-"
 
 
-def format_contract_lines(lines: list[tuple[str, int | None, int]]) -> str:
-    rows = [f"- {name}: {quantity}." for name, _previous, quantity in lines]
+def format_contract_lines(lines: list[tuple[str, float | None, float]]) -> str:
+    rows = [f"- {name}: {format_quantity(quantity)}." for name, _previous, quantity in lines]
     if not rows:
         return "Sin partidas con cantidad"
     rows[-1] = rows[-1][:-1]

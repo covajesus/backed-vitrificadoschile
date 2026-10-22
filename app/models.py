@@ -73,6 +73,8 @@ class WorkRow(Base):
     square_meters: Mapped[float] = mapped_column(Float, default=0)
     client_name: Mapped[str] = mapped_column(String(160), default="")
     client_phone: Mapped[str] = mapped_column(String(30), default="")
+    apartment: Mapped[str] = mapped_column(String(40), default="")
+    crew_note: Mapped[str] = mapped_column(String(500), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
@@ -231,12 +233,24 @@ class NotificationContactRow(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
 
 
+class MeasureUnitRow(Base):
+    __tablename__ = "measure_units"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(40), unique=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
 class ChargeItemRow(Base):
     __tablename__ = "charge_items"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     parent_id: Mapped[int | None] = mapped_column(ForeignKey("charge_items.id"), nullable=True)
+    unit_id: Mapped[int | None] = mapped_column(ForeignKey("measure_units.id"), nullable=True)
     kind: Mapped[str] = mapped_column(String(20), default="simple")
+    position: Mapped[int] = mapped_column(Integer, default=0)
     name: Mapped[str] = mapped_column(String(120))
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
@@ -260,7 +274,7 @@ class WorkItemRow(Base):
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     work_id: Mapped[int] = mapped_column(ForeignKey("works.id"))
     item_id: Mapped[int] = mapped_column(ForeignKey("charge_items.id"))
-    quantity: Mapped[int] = mapped_column(Integer, default=0)
+    quantity: Mapped[float] = mapped_column(Float, default=0)
 
 
 class SettlementRow(Base):

@@ -462,8 +462,13 @@ def test_only_the_site_lead_updates_charge_quantities() -> None:
 def test_charge_items_have_a_price_on_the_lead_and_a_quantity_on_the_work() -> None:
     api = client()
     headers = admin_headers(api)
-    created = api.post("/api/charge-items", headers=headers, json={"name": "Cristal"})
+    units = api.get("/api/measure-units", headers=headers)
+    assert units.status_code == 200
+    by_name = {row["name"]: row["id"] for row in units.json()}
+    created = api.post("/api/charge-items", headers=headers, json={"name": "Cristal", "unitId": by_name["m²"]})
     assert created.status_code == 200
+    assert created.json()["unitId"] == by_name["m²"]
+    assert created.json()["unit"] == "m²"
     item_id = created.json()["id"]
     lead = api.put("/api/accounts/2", headers=headers, json={
         "name": "Maestro de obra",
@@ -485,18 +490,33 @@ def test_charge_items_have_a_price_on_the_lead_and_a_quantity_on_the_work() -> N
         "squareMeters": 20,
         "clientName": "Cliente Ítem",
         "clientPhone": "987654321",
-        "charges": [{"itemId": item_id, "quantity": 4}],
+        "apartment": "1204",
+        "crewNote": "Tocar el timbre del conserje.",
+        "charges": [{"itemId": item_id, "quantity": 4.5}],
     })
     assert work.status_code == 200
-    assert work.json()["charges"] == [{"itemId": item_id, "quantity": 4}]
+    assert work.json()["apartment"] == "1204"
+    assert work.json()["crewNote"] == "Tocar el timbre del conserje."
+    assert work.json()["charges"] == [{"itemId": item_id, "quantity": 4.5}]
     composed = api.post("/api/charge-items", headers=headers, json={
         "name": "Instalación especial",
         "kind": "composed",
-        "lines": [{"name": "Mano de obra"}, {"name": "Material"}],
+        "lines": [{"name": "Mano de obra", "unitId": by_name["m²"]}, {"name": "Material", "unitId": by_name["un"]}],
     })
     assert composed.status_code == 200
     assert composed.json()["kind"] == "composed"
-    assert [line["name"] for line in composed.json()["lines"]] == ["Mano de obra", "Material"]
+    assert [(line["name"], line["unit"], line["unitId"]) for line in composed.json()["lines"]] == [
+        ("Mano de obra", "m²", by_name["m²"]),
+        ("Material", "un", by_name["un"]),
+    ]
+    listed = api.get("/api/charge-items", headers=headers)
+    assert listed.status_code == 200
+    ids = [row["id"] for row in listed.json()]
+    first = [item_id, *[row_id for row_id in ids if row_id != item_id]]
+    ordered = api.put("/api/charge-items/order", headers=headers, json={"ids": first})
+    assert ordered.status_code == 200
+    assert [row["id"] for row in ordered.json()] == first
+    assert ordered.json()[0]["position"] == 0
 
 
 def contract_text(data: bytes) -> str:

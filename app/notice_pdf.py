@@ -3,7 +3,7 @@ from pathlib import Path
 
 from fpdf import FPDF
 
-from app.domain import palmeta_amount
+from app.domain import format_quantity, palmeta_amount
 
 MONTHS = (
     "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
@@ -267,10 +267,11 @@ def clause(pdf: FPDF, font: str, html: str, size: float = 11) -> None:
     pdf.write_html(f'<p align="justify"><font face="{font}" size="{size}">{html}</font></p>')
 
 
-def charge_quantity(previous: int | None, quantity: int) -> str:
+def charge_quantity(previous: float | None, quantity: float) -> str:
+    shown = format_quantity(quantity)
     if previous is None or previous == quantity:
-        return str(quantity)
-    return f"{previous} a {quantity}"
+        return shown
+    return f"{format_quantity(previous)} a {shown}"
 
 
 def charge_row(pdf: FPDF, font: str, name: str, quantity: str) -> None:

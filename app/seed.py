@@ -8,6 +8,7 @@ from app.models import (
     STATUS_WORKING,
     ChargeItemRow,
     BankAccountTypeRow,
+    MeasureUnitRow,
     BankRow,
     RoleRow,
     SettingRow,
@@ -128,7 +129,10 @@ def seed_if_empty(db: Session) -> None:
 def seed_charge_items(db: Session) -> None:
     if db.query(ChargeItemRow).first():
         return
-    db.add_all([ChargeItemRow(id=index, name=name) for index, name in enumerate(CHARGE_ITEM_NAMES, start=1)])
+    db.add_all([
+        ChargeItemRow(id=index, name=name, position=index - 1)
+        for index, name in enumerate(CHARGE_ITEM_NAMES, start=1)
+    ])
     db.flush()
     lead = db.query(UserRow).filter(UserRow.email == "lead.worker@vitrificados.local").one_or_none()
     if lead is not None:
@@ -241,6 +245,17 @@ def ensure_bank_account_types(db: Session) -> None:
     for name in ACCOUNT_TYPE_NAMES:
         if name not in existing:
             db.add(BankAccountTypeRow(name=name))
+    db.commit()
+
+
+MEASURE_UNIT_NAMES = ("m²", "ml", "un", "kg", "L", "gl")
+
+
+def ensure_measure_units(db: Session) -> None:
+    existing = {row.name for row in db.query(MeasureUnitRow).all()}
+    for name in MEASURE_UNIT_NAMES:
+        if name not in existing:
+            db.add(MeasureUnitRow(name=name))
     db.commit()
 
 

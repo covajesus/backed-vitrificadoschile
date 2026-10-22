@@ -42,6 +42,7 @@ from app.models import (
     ChargeItemRow,
     DeductionRow,
     NotificationContactRow,
+    MeasureUnitRow,
     PalmetaChangeRow,
     RoleRow,
     SettingRow,
@@ -68,6 +69,7 @@ from app.schemas import (
     AssignmentOut,
     ChargeItemBody,
     ChargeItemOut,
+    ChargeOrderBody,
     CrewBody,
     DeductionBody,
     DeductionOut,
@@ -146,7 +148,7 @@ def work_charges(db: Session, work_id: int) -> list[WorkChargeOut]:
     return work_charge_map(db).get(work_id, [])
 
 
-def charge_quantities(db: Session, work_id: int) -> dict[int, int]:
+def charge_quantities(db: Session, work_id: int) -> dict[int, float]:
     return {
         row.item_id: row.quantity
         for row in db.query(WorkItemRow).filter(WorkItemRow.work_id == work_id)
@@ -155,9 +157,9 @@ def charge_quantities(db: Session, work_id: int) -> dict[int, int]:
 
 def contract_lines(
     db: Session,
-    current: dict[int, int],
-    previous: dict[int, int] | None,
-) -> list[tuple[str, int | None, int]]:
+    current: dict[int, float],
+    previous: dict[int, float] | None,
+) -> list[tuple[str, float | None, float]]:
     keys = set(current)
     if previous is not None:
         keys.update(previous)
@@ -169,10 +171,16 @@ def contract_lines(
         row.id: row.name
         for row in db.query(ChargeItemRow).filter(ChargeItemRow.id.in_(parent_ids)).all()
     } if parent_ids else {}
-    lines: list[tuple[str, int | None, int]] = []
+    lines: list[tuple[str, float | None, float]] = []
     for item_id, item in items.items():
         parent = parents.get(item.parent_id) if item.parent_id else None
         label = f"{parent} - {item.name}" if parent else item.name
+        unit = ""
+        if item.unit_id is not None:
+            measure = db.get(MeasureUnitRow, item.unit_id)
+            unit = measure.name if measure is not None and measure.deleted_at is None else ""
+        if unit:
+            label = f"{label} · {unit}"
         before = previous.get(item_id, 0) if previous is not None else None
         after = current.get(item_id, 0)
         if before is None and after == 0:
@@ -189,7 +197,7 @@ def deliver_work_contract(
     work: WorkRow,
     *,
     updated: bool,
-    previous: dict[int, int] | None = None,
+    previous: dict[int, float] | None = None,
     saved: str | None = None,
 ) -> str:
     label = saved or ("Partidas actualizadas" if updated else "Obra guardada")
@@ -236,8 +244,9 @@ def save_work_charges(db: Session, work: WorkRow, charges: list[WorkChargeOut]) 
         item = db.get(ChargeItemRow, item_id) if item_id else None
         if item is None or item.deleted_at is not None or item.id in seen:
             continue
-        if charge.quantity < 0:
-            fail(400, "La cantidad de la partida debe ser un número entero.")
+        if not math.isfinite(charge.quantity) or charge.quantity < 0:
+            fail(400, "La cantidad de la partida no puede ser negativa.")
+        charge.quantity = round(float(charge.quantity), 2)
         if charge.quantity == 0:
             continue
         seen.add(item.id)
@@ -413,6 +422,8 @@ def create_work(body: WorkBody, _: AccountRow = Depends(require_admin), db: Sess
         square_meters=body.squareMeters,
         client_name=body.clientName.strip(),
         client_phone=body.clientPhone.strip(),
+        apartment=body.apartment.strip(),
+        crew_note=body.crewNote.strip(),
     )
     db.add(row)
     db.flush()
@@ -450,6 +461,8 @@ def update_work(
     row.square_meters = body.squareMeters
     row.client_name = body.clientName.strip()
     row.client_phone = body.clientPhone.strip()
+    row.apartment = body.apartment.strip()
+    row.crew_note = body.crewNote.strip()
     previous = charge_quantities(db, row.id)
     save_work_charges(db, row, body.charges)
     db.commit()
@@ -478,6 +491,8 @@ def work_fields_error(body: WorkBody) -> str | None:
         body.squareMeters,
         body.clientName,
         body.clientPhone,
+        body.apartment,
+        body.crewNote,
     )
 
 
@@ -1113,8 +1128,33 @@ def charge_lines(db: Session, parent_id: int) -> list[ChargeItemRow]:
     ).order_by(ChargeItemRow.name).all()
 
 
+def measure_name(db: Session, unit_id: int | None) -> str:
+    if unit_id is None:
+        return ""
+    row = db.get(MeasureUnitRow, unit_id)
+    if row is None or row.deleted_at is not None:
+        return ""
+    return row.name
+
+
+def assign_unit(db: Session, raw: str) -> int | None:
+    value = raw.strip()
+    if not value:
+        return None
+    if not value.isdigit():
+        fail(400, "Selecciona una unidad de medida.")
+    row = db.get(MeasureUnitRow, int(value))
+    if row is None or row.deleted_at is not None:
+        fail(400, "La unidad de medida no es válida.")
+    return row.id
+
+
 def publish_charge_item(db: Session, row: ChargeItemRow) -> ChargeItemOut:
-    return charge_item_out(row, charge_lines(db, row.id) if row.kind == "composed" else [])
+    lines = charge_lines(db, row.id) if row.kind == "composed" else []
+    names = {row.unit_id: measure_name(db, row.unit_id)}
+    for line in lines:
+        names[line.unit_id] = measure_name(db, line.unit_id)
+    return charge_item_out(row, lines, names)
 
 
 def charge_name_taken(db: Session, name: str, ignore_id: int | None = None) -> bool:
@@ -1143,14 +1183,16 @@ def save_charge_lines(db: Session, parent: ChargeItemRow, body: ChargeItemBody) 
         name = line.name.strip()
         if len(name) < 3:
             fail(400, "Cada línea debe tener al menos 3 caracteres.")
+        unit_id = assign_unit(db, line.unitId)
         key = num(line.id) if line.id else None
         match = next((row for row in current if key is not None and row.id == key), None)
         if match is None:
-            match = ChargeItemRow(name=name, kind="simple", parent_id=parent.id)
+            match = ChargeItemRow(name=name, kind="simple", parent_id=parent.id, unit_id=unit_id)
             db.add(match)
             db.flush()
         else:
             match.name = name
+            match.unit_id = unit_id
             match.deleted_at = None
         kept.add(match.id)
     for row in current:
@@ -1158,13 +1200,29 @@ def save_charge_lines(db: Session, parent: ChargeItemRow, body: ChargeItemBody) 
             row.deleted_at = now
 
 
+@router.get("/measure-units", response_model=list[BankOut])
+def list_measure_units(_: AccountRow = Depends(current_account), db: Session = Depends(get_db)) -> list[BankOut]:
+    rows = db.query(MeasureUnitRow).filter(MeasureUnitRow.deleted_at.is_(None)).order_by(MeasureUnitRow.name).all()
+    return [BankOut(id=str(row.id), name=row.name) for row in rows]
+
+
 @router.get("/charge-items", response_model=list[ChargeItemOut])
 def list_charge_items(_: AccountRow = Depends(current_account), db: Session = Depends(get_db)) -> list[ChargeItemOut]:
     rows = db.query(ChargeItemRow).filter(
         ChargeItemRow.deleted_at.is_(None),
         ChargeItemRow.parent_id.is_(None),
-    ).order_by(ChargeItemRow.name).all()
+    ).order_by(ChargeItemRow.position, ChargeItemRow.name).all()
     return [publish_charge_item(db, row) for row in rows]
+
+
+def next_charge_position(db: Session) -> int:
+    rows = db.query(ChargeItemRow.position).filter(
+        ChargeItemRow.deleted_at.is_(None),
+        ChargeItemRow.parent_id.is_(None),
+    ).all()
+    if not rows:
+        return 0
+    return max(int(row[0]) for row in rows) + 1
 
 
 @router.post("/charge-items", response_model=ChargeItemOut)
@@ -1176,13 +1234,33 @@ def create_charge_item(body: ChargeItemBody, _: AccountRow = Depends(require_adm
         fail(400, "El tipo de partida no es válido.")
     if charge_name_taken(db, name):
         fail(400, "Ya existe una partida con ese nombre.")
-    row = ChargeItemRow(name=name, kind=body.kind)
+    row = ChargeItemRow(name=name, kind=body.kind, unit_id=assign_unit(db, body.unitId), position=next_charge_position(db))
     db.add(row)
     db.flush()
     save_charge_lines(db, row, body)
     db.commit()
     db.refresh(row)
     return publish_charge_item(db, row)
+
+
+@router.put("/charge-items/order", response_model=list[ChargeItemOut])
+def reorder_charge_items(
+    body: ChargeOrderBody,
+    _: AccountRow = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> list[ChargeItemOut]:
+    rows = db.query(ChargeItemRow).filter(
+        ChargeItemRow.deleted_at.is_(None),
+        ChargeItemRow.parent_id.is_(None),
+    ).all()
+    by_id = {str(row.id): row for row in rows}
+    if set(body.ids) != set(by_id):
+        fail(400, "El orden de las partidas no es válido.")
+    for index, item_id in enumerate(body.ids):
+        by_id[item_id].position = index
+    db.commit()
+    ordered = sorted(rows, key=lambda row: row.position)
+    return [publish_charge_item(db, row) for row in ordered]
 
 
 @router.put("/charge-items/{item_id}", response_model=ChargeItemOut)
@@ -1203,6 +1281,7 @@ def update_charge_item(
     if charge_name_taken(db, name, row.id):
         fail(400, "Ya existe una partida con ese nombre.")
     row.name = name
+    row.unit_id = assign_unit(db, body.unitId)
     row.kind = body.kind
     save_charge_lines(db, row, body)
     db.commit()

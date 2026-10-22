@@ -8,7 +8,7 @@ class ItemPriceOut(BaseModel):
 
 class WorkChargeOut(BaseModel):
     itemId: str
-    quantity: int
+    quantity: float
 
 
 class WorkChargesBody(BaseModel):
@@ -18,15 +18,19 @@ class WorkChargesBody(BaseModel):
 class ChargeLineBody(BaseModel):
     id: str | None = None
     name: str
+    unitId: str = ""
 
 
 class ChargeLineOut(BaseModel):
     id: str
     name: str
+    unitId: str = ""
+    unit: str = ""
 
 
 class ChargeItemBody(BaseModel):
     name: str
+    unitId: str = ""
     kind: str = "simple"
     lines: list[ChargeLineBody] = []
 
@@ -34,8 +38,15 @@ class ChargeItemBody(BaseModel):
 class ChargeItemOut(BaseModel):
     id: str
     name: str
+    unitId: str = ""
+    unit: str = ""
     kind: str = "simple"
+    position: int = 0
     lines: list[ChargeLineOut] = []
+
+
+class ChargeOrderBody(BaseModel):
+    ids: list[str]
 
 
 class BankOut(BaseModel):
@@ -93,6 +104,8 @@ class WorkBody(BaseModel):
     squareMeters: float = 0
     clientName: str = ""
     clientPhone: str = ""
+    apartment: str = ""
+    crewNote: str = ""
     latitude: float | None = None
     longitude: float | None = None
     charges: list[WorkChargeOut] = []
