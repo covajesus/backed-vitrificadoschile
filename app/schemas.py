@@ -121,7 +121,24 @@ class WorkOut(WorkBody):
     latitude: float
     longitude: float
     pendingPalmetaCount: int | None = None
+    pendingChange: bool = False
     notice: str = ""
+
+
+class ChargeChangeLineOut(BaseModel):
+    itemId: str
+    label: str
+    before: float
+    after: float
+
+
+class ChargeChangeOut(BaseModel):
+    id: str
+    workId: str
+    status: str
+    lines: list[ChargeChangeLineOut]
+    createdAt: str
+    decidedAt: str | None = None
 
 
 class LocateBody(BaseModel):
@@ -315,12 +332,14 @@ class SettingBody(BaseModel):
     companyPhone: str = ""
     emails: list[str] | None = None
     phones: list[str] | None = None
+    graceMinutes: int | None = None
 
 
 class SettingOut(BaseModel):
     companyPhone: str
     emails: list[str] = []
     phones: list[str] = []
+    graceMinutes: int = 0
 
 
 class PalmetaChangeBody(BaseModel):
@@ -357,6 +376,7 @@ class SettlementOut(SettlementBody):
 class AlertOut(BaseModel):
     id: str
     userId: str | None
+    workId: str | None = None
     kind: str
     message: str
     createdAt: str
@@ -365,6 +385,7 @@ class AlertOut(BaseModel):
 class DeductionBody(BaseModel):
     workerId: str
     period: str
+    detail: str
     amount: int
 
 

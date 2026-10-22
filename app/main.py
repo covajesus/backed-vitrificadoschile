@@ -91,6 +91,9 @@ def ensure_measure_columns(engine) -> None:
     ensure_column(engine, "tasks", "kind", "kind VARCHAR(20) NOT NULL DEFAULT 'site'")
     ensure_column(engine, "tasks", "amount", "amount INTEGER NOT NULL DEFAULT 0")
     ensure_column(engine, "tasks", "extra_amount", "extra_amount INTEGER NOT NULL DEFAULT 0")
+    ensure_column(engine, "deductions", "detail", "detail VARCHAR(160) NOT NULL DEFAULT ''")
+    ensure_column(engine, "alerts", "work_id", "work_id INTEGER NULL")
+    ensure_column(engine, "settings", "grace_minutes", "grace_minutes INTEGER NOT NULL DEFAULT 0")
 
 
 def ensure_hourly_rate(engine) -> None:
@@ -240,6 +243,10 @@ def create_app(database_url: str | None = None, secret: str = SECRET) -> FastAPI
         allow_headers=["*"],
     )
     app.include_router(router)
+    if os.environ.get("LATE_WATCH", "1") != "0" and not database_url.startswith("sqlite"):
+        from app.late_arrivals import start_late_watch
+
+        start_late_watch(session_factory)
 
     from fastapi import Depends
     from sqlalchemy.orm import Session

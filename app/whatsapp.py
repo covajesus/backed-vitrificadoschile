@@ -1,3 +1,4 @@
+import math
 import os
 from pathlib import Path
 
@@ -52,6 +53,17 @@ def clean_whatsapp_text(value: str, *, keep_lines: bool = False) -> str:
     return text.strip()[:1024] or "-"
 
 
+def format_assignment_partidas(lines: list[tuple[str, float]]) -> str:
+    rows = [f"{name} {format_quantity(quantity)}" for name, quantity in lines if quantity > 0]
+    return ", ".join(rows) or "Sin partidas"
+
+
+def map_link(latitude: float, longitude: float) -> str:
+    if not math.isfinite(latitude) or not math.isfinite(longitude):
+        return "-"
+    return f"https://www.google.com/maps/search/?api=1&query={latitude},{longitude}"
+
+
 def format_contract_lines(lines: list[tuple[str, float | None, float]]) -> str:
     rows = [f"- {name}: {format_quantity(quantity)}." for name, _previous, quantity in lines]
     if not rows:
@@ -104,9 +116,11 @@ def send_text(phone: str, text: str) -> dict:
 
 CONTRACT_TEMPLATE = "scope_of_work"
 UPDATED_CONTRACT_TEMPLATE = "updated_scope_of_work"
+ASSIGNMENT_TEMPLATE = "scope_of_worker"
+LATE_TEMPLATE = "late_alert"
 
 
-def upload_pdf(filename: str, content: bytes) -> dict:
+def upload_media(filename: str, content: bytes, mime: str) -> dict:
     token = os.environ.get("META_TOKEN", "").strip()
     if not token:
         return {"ok": False, "error": "WhatsApp no está configurado."}
@@ -114,16 +128,28 @@ def upload_pdf(filename: str, content: bytes) -> dict:
     response = httpx.post(
         url,
         headers={"Authorization": f"Bearer {token}"},
-        data={"messaging_product": "whatsapp", "type": "application/pdf"},
-        files={"file": (filename, content, "application/pdf")},
+        data={"messaging_product": "whatsapp", "type": mime},
+        files={"file": (filename, content, mime)},
         timeout=30,
     )
     body = response.json() if response.content else {}
     media_id = body.get("id")
     if response.status_code != 200 or not media_id:
         error = body.get("error", {})
-        return {"ok": False, "error": error.get("message") or "No se pudo adjuntar el PDF."}
+        return {"ok": False, "error": error.get("message") or "No se pudo adjuntar el archivo."}
     return {"ok": True, "id": media_id}
+
+
+def upload_pdf(filename: str, content: bytes) -> dict:
+    return upload_media(filename, content, "application/pdf")
+
+
+def brand_logo() -> tuple[str, bytes] | None:
+    from app.notice_pdf import logo_path
+    path = logo_path()
+    if path is None:
+        return None
+    return path.name, path.read_bytes()
 
 
 def send_template(
@@ -133,9 +159,25 @@ def send_template(
     button_payloads: list[str] | None = None,
     *,
     document: tuple[str, bytes] | None = None,
+    image: tuple[str, bytes] | None = None,
     line_parameters: set[int] | None = None,
+    language: str = "es",
 ) -> dict:
     components: list[dict] = []
+    if image is not None:
+        filename, content = image
+        mime = "image/png" if filename.lower().endswith(".png") else "image/jpeg"
+        uploaded = upload_media(filename, content, mime)
+        if not uploaded.get("ok"):
+            uploaded["template"] = name
+            return uploaded
+        components.append({
+            "type": "header",
+            "parameters": [{
+                "type": "image",
+                "image": {"id": uploaded["id"]},
+            }],
+        })
     if document is not None:
         filename, content = document
         uploaded = upload_pdf(filename, content)
@@ -170,7 +212,7 @@ def send_template(
         "type": "template",
         "template": {
             "name": name,
-            "language": {"code": "es"},
+            "language": {"code": language},
             "components": components,
         },
     })
@@ -205,6 +247,58 @@ def send_buttons(phone: str, text: str, buttons: list[tuple[str, str]]) -> dict:
             "action": {"buttons": payload_buttons},
         },
     })
+
+
+def notify_late_arrival(
+    *,
+    phone: str,
+    worker_name: str,
+    work_name: str,
+    minutes_late: int,
+) -> dict:
+    if len(phone_digits(phone)) < 8 or not configured():
+        return {"ok": False, "error": "WhatsApp no está configurado."}
+    parameters = [
+        worker_name.strip() or "Trabajador",
+        str(minutes_late),
+        work_name.strip() or "Obra",
+    ]
+    try:
+        logo = brand_logo()
+        sent = send_template(phone, LATE_TEMPLATE, parameters, image=logo, language="es")
+        if logo is not None and not sent.get("ok"):
+            sent = send_template(phone, LATE_TEMPLATE, parameters, language="es")
+        return sent
+    except Exception as error:
+        return {"ok": False, "error": str(error)}
+
+
+def notify_worker_assignment(
+    *,
+    phone: str,
+    worker_name: str,
+    work_name: str,
+    address: str,
+    latitude: float,
+    longitude: float,
+    partidas: str,
+) -> None:
+    if len(phone_digits(phone)) < 8 or not configured():
+        return
+    parameters = [
+        worker_name.strip() or "Trabajador",
+        work_name.strip() or "Obra",
+        address.strip() or "-",
+        map_link(latitude, longitude),
+        partidas.strip() or "Sin partidas",
+    ]
+    try:
+        logo = brand_logo()
+        sent = send_template(phone, ASSIGNMENT_TEMPLATE, parameters, image=logo, language="en")
+        if logo is not None and not sent.get("ok"):
+            send_template(phone, ASSIGNMENT_TEMPLATE, parameters, language="en")
+    except Exception:
+        return
 
 
 def notify_work_contract(

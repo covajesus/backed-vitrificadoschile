@@ -1,5 +1,5 @@
 import math
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from urllib.parse import quote
 
 WHATSAPP_PHONE = "56987654321"
@@ -31,6 +31,58 @@ def minutes_of(value: str) -> int | None:
 
 
 WORK_DAY_MODES = {"weekdays", "weekend", "all", "except-sunday"}
+MODE_DAYS = {
+    "weekdays": {1, 2, 3, 4, 5},
+    "weekend": {6, 0},
+    "all": {1, 2, 3, 4, 5, 6, 0},
+    "except-sunday": {1, 2, 3, 4, 5, 6},
+}
+
+
+def allowed_weekdays(value: str) -> set[int]:
+    preset = MODE_DAYS.get(value)
+    if preset is not None:
+        return set(preset)
+    return {int(part) for part in value.split(",") if part.isdigit() and int(part) in range(7)}
+
+
+def js_weekday(day: date) -> int:
+    return (day.weekday() + 1) % 7
+
+
+def scheduled_on(work_days: str, start_date: str, day_count: int, excluded: set[str], day: date) -> bool:
+    if day.isoformat() in excluded:
+        return False
+    allowed = allowed_weekdays(work_days)
+    if not allowed or js_weekday(day) not in allowed:
+        return False
+    if not start_date or day_count < 1:
+        return True
+    if len(start_date) != 10:
+        return False
+    cursor = date.fromisoformat(start_date)
+    found = 0
+    for offset in range(day_count * 7 + 7):
+        current = cursor + timedelta(days=offset)
+        if js_weekday(current) not in allowed:
+            continue
+        if current == day:
+            return True
+        found += 1
+        if found >= day_count:
+            return False
+    return False
+
+
+def late_slot(shift_start: str, grace_minutes: int, now_minutes: int) -> int | None:
+    start = minutes_of(shift_start)
+    if start is None:
+        return None
+    grace = grace_minutes if isinstance(grace_minutes, int) and grace_minutes > 0 else 0
+    late = now_minutes - (start + grace)
+    if late < 30:
+        return None
+    return (late // 30) * 30
 
 
 def work_error(

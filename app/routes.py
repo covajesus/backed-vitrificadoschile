@@ -24,7 +24,7 @@ from app.domain import (
     work_error,
 )
 from app.notice_pdf import contract_pdf, money, palmeta_change_pdf, period_label, settlement_pdf
-from app.whatsapp import clean_phone, notify_palmeta_change, notify_work_contract
+from app.whatsapp import clean_phone, format_assignment_partidas, notify_palmeta_change, notify_work_contract, notify_worker_assignment
 from app.geocoding import AddressNotFound, locate_address, shorten_address, suggest_addresses
 from app.models import (
     CODE_STATUS,
@@ -37,6 +37,7 @@ from app.models import (
     STATUS_DELIVERED,
     AccountRow,
     AlertRow,
+    ChargeChangeRow,
     BankAccountTypeRow,
     BankRow,
     ChargeItemRow,
@@ -62,6 +63,8 @@ from app.presenters import account_out, arrival_out, assignment_out, charge_item
 from app.schemas import (
     AccountBody,
     AlertOut,
+    ChargeChangeLineOut,
+    ChargeChangeOut,
     AccountOut,
     BankOut,
     ArrivalBody,
@@ -110,14 +113,15 @@ def fail(status: int, detail: str) -> NoReturn:
     raise HTTPException(status_code=status, detail=detail)
 
 
-def add_alert(db: Session, user_id: int | None, kind: str, message: str) -> None:
-    db.add(AlertRow(user_id=user_id, kind=kind, message=message))
+def add_alert(db: Session, user_id: int | None, kind: str, message: str, work_id: int | None = None) -> None:
+    db.add(AlertRow(user_id=user_id, work_id=work_id, kind=kind, message=message))
 
 
 def alert_out(row: AlertRow) -> AlertOut:
     return AlertOut(
         id=str(row.id),
         userId=None if row.user_id is None else str(row.user_id),
+        workId=None if row.work_id is None else str(row.work_id),
         kind=row.kind,
         message=row.message,
         createdAt=row.created_at.isoformat(),
@@ -333,7 +337,16 @@ def list_works(account: AccountRow = Depends(current_account), db: Session = Dep
         rows = [row for row in rows if row.id in allowed]
     pending = pending_counts(db)
     charges = work_charge_map(db)
-    return [published_work(row, pending, charges.get(row.id, [])) for row in rows]
+    waiting = {
+        item.work_id
+        for item in db.query(ChargeChangeRow).filter(ChargeChangeRow.status == "pending")
+    }
+    listed = []
+    for row in rows:
+        result = published_work(row, pending, charges.get(row.id, []))
+        result.pendingChange = row.id in waiting
+        listed.append(result)
+    return listed
 
 
 @router.get("/works/{work_id}/calendar/{month}", response_model=CalendarOut)
@@ -496,6 +509,82 @@ def work_fields_error(body: WorkBody) -> str | None:
     )
 
 
+def proposed_quantities(db: Session, charges: list[WorkChargeOut]) -> dict[int, float]:
+    seen: set[int] = set()
+    result: dict[int, float] = {}
+    for charge in charges:
+        item_id = num(charge.itemId)
+        item = db.get(ChargeItemRow, item_id) if item_id else None
+        if item is None or item.deleted_at is not None or item.id in seen:
+            continue
+        if not math.isfinite(charge.quantity) or charge.quantity < 0:
+            fail(400, "La cantidad de la partida no puede ser negativa.")
+        quantity = round(float(charge.quantity), 2)
+        if quantity == 0:
+            continue
+        seen.add(item.id)
+        result[item.id] = quantity
+    return result
+
+
+def stored_quantities(raw: str) -> dict[int, float]:
+    try:
+        payload = json.loads(raw or "[]")
+    except json.JSONDecodeError:
+        return {}
+    result: dict[int, float] = {}
+    if not isinstance(payload, list):
+        return result
+    for item in payload:
+        if not isinstance(item, dict):
+            continue
+        try:
+            result[int(item["itemId"])] = float(item["quantity"])
+        except (KeyError, TypeError, ValueError):
+            continue
+    return result
+
+
+def charge_change_lines(db: Session, before: dict[int, float], after: dict[int, float]) -> list[ChargeChangeLineOut]:
+    keys = set(before) | set(after)
+    items = {row.id: row for row in db.query(ChargeItemRow).filter(ChargeItemRow.id.in_(keys)).all()} if keys else {}
+    lines: list[ChargeChangeLineOut] = []
+    for item_id in keys:
+        previous = before.get(item_id, 0)
+        quantity = after.get(item_id, 0)
+        if previous == quantity:
+            continue
+        item = items.get(item_id)
+        label = item.name if item is not None else str(item_id)
+        if item is not None and item.unit_id is not None:
+            measure = db.get(MeasureUnitRow, item.unit_id)
+            unit = measure.name if measure is not None and measure.deleted_at is None else ""
+            if unit:
+                label = f"{label} · {unit}"
+        lines.append(ChargeChangeLineOut(itemId=str(item_id), label=label, before=previous, after=quantity))
+    lines.sort(key=lambda line: line.label.casefold())
+    return lines
+
+
+def charge_change_out(db: Session, row: ChargeChangeRow) -> ChargeChangeOut:
+    return ChargeChangeOut(
+        id=str(row.id),
+        workId=str(row.work_id),
+        status=row.status,
+        lines=charge_change_lines(db, stored_quantities(row.before_quantities), stored_quantities(row.proposed)),
+        createdAt=row.created_at.isoformat(),
+        decidedAt=None if row.decided_at is None else row.decided_at.isoformat(),
+    )
+
+
+def pending_charge_change(db: Session, work_id: int) -> ChargeChangeRow | None:
+    return (
+        db.query(ChargeChangeRow)
+        .filter(ChargeChangeRow.work_id == work_id, ChargeChangeRow.status == "pending")
+        .first()
+    )
+
+
 @router.put("/works/{work_id}/charges", response_model=WorkOut)
 def update_work_charges(
     work_id: str,
@@ -516,14 +605,106 @@ def update_work_charges(
     if assigned is None:
         fail(403, "Solo puedes cambiar las partidas de tus obras.")
     previous = charge_quantities(db, row.id)
-    save_work_charges(db, row, body.charges)
-    db.commit()
-    db.refresh(row)
+    proposed = proposed_quantities(db, body.charges)
     result = published_work(row, pending_counts(db), work_charges(db, row.id))
-    if previous != charge_quantities(db, row.id):
-        add_alert(db, None, "modified", f"{account.name} modificó las partidas de {row.client_name or row.names}.")
-        db.commit()
-        result.notice = deliver_work_contract(db, row, updated=True, previous=previous)
+    if previous == proposed:
+        return result
+    current = (
+        db.query(ChargeChangeRow)
+        .filter(ChargeChangeRow.work_id == row.id, ChargeChangeRow.status == "pending")
+        .first()
+    )
+    payload = json.dumps([{"itemId": str(item_id), "quantity": quantity} for item_id, quantity in sorted(proposed.items())])
+    before_payload = json.dumps([{"itemId": str(item_id), "quantity": quantity} for item_id, quantity in sorted(previous.items())])
+    if current is None:
+        current = ChargeChangeRow(work_id=row.id, user_id=account.id, status="pending")
+        db.add(current)
+    current.user_id = account.id
+    current.before_quantities = before_payload
+    current.proposed = payload
+    label = (row.client_name or "").strip() or row.names
+    add_alert(db, None, "modified", f"El maestro ha solicitado cambios en la obra {label}.", row.id)
+    db.commit()
+    result.pendingChange = True
+    result.notice = "Cambios enviados. Quedan en espera de aprobación."
+    return result
+
+
+@router.get("/works/{work_id}/charge-change", response_model=ChargeChangeOut)
+def read_charge_change(
+    work_id: str,
+    _: AccountRow = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> ChargeChangeOut:
+    work = db.get(WorkRow, num(work_id))
+    if work is None or work.deleted_at is not None:
+        fail(404, "Obra no encontrada.")
+    change = pending_charge_change(db, work.id)
+    if change is None:
+        fail(404, "No hay cambios en espera.")
+    return charge_change_out(db, change)
+
+
+@router.get("/works/{work_id}/charge-log", response_model=list[ChargeChangeOut])
+def read_charge_log(
+    work_id: str,
+    _: AccountRow = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> list[ChargeChangeOut]:
+    work = db.get(WorkRow, num(work_id))
+    if work is None or work.deleted_at is not None:
+        fail(404, "Obra no encontrada.")
+    rows = (
+        db.query(ChargeChangeRow)
+        .filter(ChargeChangeRow.work_id == work.id, ChargeChangeRow.status != "pending")
+        .order_by(ChargeChangeRow.id.desc())
+        .all()
+    )
+    return [charge_change_out(db, row) for row in rows]
+
+
+@router.post("/works/{work_id}/charge-change/accept", response_model=WorkOut)
+def accept_charge_change(
+    work_id: str,
+    _: AccountRow = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> WorkOut:
+    work = db.get(WorkRow, num(work_id))
+    if work is None or work.deleted_at is not None:
+        fail(404, "Obra no encontrada.")
+    change = pending_charge_change(db, work.id)
+    if change is None:
+        fail(404, "No hay cambios en espera.")
+    previous = stored_quantities(change.before_quantities)
+    proposed = stored_quantities(change.proposed)
+    save_work_charges(db, work, [WorkChargeOut(itemId=str(item_id), quantity=quantity) for item_id, quantity in proposed.items()])
+    change.status = "accepted"
+    change.decided_at = utcnow()
+    db.commit()
+    db.refresh(work)
+    result = published_work(work, pending_counts(db), work_charges(db, work.id))
+    result.notice = deliver_work_contract(db, work, updated=True, previous=previous)
+    return result
+
+
+@router.post("/works/{work_id}/charge-change/reject", response_model=WorkOut)
+def reject_charge_change(
+    work_id: str,
+    _: AccountRow = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> WorkOut:
+    work = db.get(WorkRow, num(work_id))
+    if work is None or work.deleted_at is not None:
+        fail(404, "Obra no encontrada.")
+    change = pending_charge_change(db, work.id)
+    if change is None:
+        fail(404, "No hay cambios en espera.")
+    change.status = "rejected"
+    change.decided_at = utcnow()
+    db.commit()
+    db.refresh(work)
+    result = published_work(work, pending_counts(db), work_charges(db, work.id))
+    result.notice = "Cambios rechazados."
     return result
 
 
@@ -587,6 +768,39 @@ def list_assignments(
     return [assignment_out(row) for row in query.all()]
 
 
+def assignment_address(work: WorkRow) -> str:
+    address = shorten_address(work.address) or work.address
+    apartment = (work.apartment or "").strip()
+    if apartment:
+        address = f"{address}, depto {apartment}"
+    return address
+
+
+def deliver_assignment_notice(db: Session, work: WorkRow, user_ids: list[int]) -> None:
+    if not user_ids:
+        return
+    try:
+        lines = contract_lines(db, charge_quantities(db, work.id), None)
+        partidas = format_assignment_partidas([(name, quantity) for name, _previous, quantity in lines])
+        address = assignment_address(work)
+        label = (work.client_name or "").strip() or work.name
+        for user_id in user_ids:
+            person = db.get(UserRow, user_id)
+            if person is None:
+                continue
+            notify_worker_assignment(
+                phone=person.phone,
+                worker_name=person.name,
+                work_name=label,
+                address=address,
+                latitude=work.latitude,
+                longitude=work.longitude,
+                partidas=partidas,
+            )
+    except Exception:
+        return
+
+
 @router.put("/works/{work_id}/crew", response_model=list[AssignmentOut])
 def replace_crew(
     work_id: str,
@@ -639,13 +853,14 @@ def replace_crew(
         for user_id, member in unique.items()
     )
     work_name = work.client_name or work.names
-    for user_id in unique:
-        if user_id not in previous_crew:
-            add_alert(db, user_id, "assigned", f"Te agregaron a la obra {work_name}.")
+    added = [user_id for user_id in unique if user_id not in previous_crew]
+    for user_id in added:
+        add_alert(db, user_id, "assigned", f"Te agregaron a la obra {work_name}.")
     for user_id in previous_crew:
         if user_id not in unique:
             add_alert(db, user_id, "removed", f"Te quitaron de la obra {work_name}.")
     db.commit()
+    deliver_assignment_notice(db, work, added)
     rows = db.query(WorkScheduleRow).filter(WorkScheduleRow.work_id == work_key, WorkScheduleRow.deleted_at.is_(None)).all()
     return [assignment_out(row) for row in rows]
 
@@ -870,6 +1085,7 @@ def published_settings(db: Session) -> SettingOut:
         companyPhone=row.company_phone if row else "",
         emails=contact_values(db, "email"),
         phones=phones,
+        graceMinutes=row.grace_minutes if row else 0,
     )
 
 
@@ -904,6 +1120,8 @@ def update_settings(
         fail(400, "Indica un celular válido.")
     if body.companyPhone.strip() and phones is None and len(phone_digits(body.companyPhone)) < 8:
         fail(400, "Indica un teléfono válido.")
+    if body.graceMinutes is not None and (body.graceMinutes < 0 or body.graceMinutes > 240):
+        fail(400, "El tiempo de gracia debe estar entre 0 y 240 minutos.")
     row = db.get(SettingRow, 1)
     if row is None:
         row = SettingRow(company_phone="")
@@ -916,8 +1134,19 @@ def update_settings(
         row.company_phone = body.companyPhone.strip()
     if emails is not None:
         replace_contacts(db, "email", emails)
+    if body.graceMinutes is not None:
+        row.grace_minutes = body.graceMinutes
     db.commit()
     return published_settings(db)
+
+
+@router.post("/jobs/late-arrivals")
+def run_late_arrivals(_: AccountRow = Depends(require_admin), db: Session = Depends(get_db)) -> dict:
+    from app.late_arrivals import chile_now, remind_late_workers
+
+    sent = remind_late_workers(db, chile_now())
+    db.commit()
+    return {"sent": sent}
 
 
 @router.post("/works/{work_id}/palmeta-changes", response_model=PalmetaChangeOut)
@@ -1642,9 +1871,14 @@ def download_settlement(
     )
 
 
-def deduction_payload(body: DeductionBody, db: Session) -> UserRow:
+def deduction_payload(body: DeductionBody, db: Session) -> tuple[UserRow, str]:
     if re.fullmatch(r"\d{4}-(0[1-9]|1[0-2])", body.period) is None:
         fail(400, "Indica el periodo con formato AAAA-MM.")
+    detail = body.detail.strip()
+    if not detail:
+        fail(400, "Indica el detalle de la deducción.")
+    if len(detail) > 160:
+        fail(400, "El detalle admite hasta 160 caracteres.")
     if body.amount <= 0:
         fail(400, "Indica un monto mayor a cero.")
     try:
@@ -1654,7 +1888,7 @@ def deduction_payload(body: DeductionBody, db: Session) -> UserRow:
     user = db.get(UserRow, user_id)
     if user is None or user.deleted_at is not None or user.rol_id not in {ROLE_SITE_LEAD, ROLE_HELPER}:
         fail(400, "El trabajador no existe.")
-    return user
+    return user, detail
 
 
 def deduction_out(row: DeductionRow) -> DeductionOut:
@@ -1662,6 +1896,7 @@ def deduction_out(row: DeductionRow) -> DeductionOut:
         id=str(row.id),
         workerId=str(row.user_id),
         period=row.period,
+        detail=row.detail,
         amount=row.amount,
         createdAt=row.created_at.isoformat(),
     )
@@ -1700,8 +1935,8 @@ def create_deduction(
     _: AccountRow = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> DeductionOut:
-    user = deduction_payload(body, db)
-    row = DeductionRow(user_id=user.id, period=body.period, amount=body.amount)
+    user, detail = deduction_payload(body, db)
+    row = DeductionRow(user_id=user.id, period=body.period, detail=detail, amount=body.amount)
     db.add(row)
     db.commit()
     db.refresh(row)
@@ -1718,9 +1953,10 @@ def update_deduction(
     row = db.get(DeductionRow, deduction_id)
     if row is None or row.deleted_at is not None:
         fail(404, "La deducción no existe.")
-    user = deduction_payload(body, db)
+    user, detail = deduction_payload(body, db)
     row.user_id = user.id
     row.period = body.period
+    row.detail = detail
     row.amount = body.amount
     db.commit()
     db.refresh(row)

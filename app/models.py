@@ -220,7 +220,20 @@ class SettingRow(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     company_phone: Mapped[str] = mapped_column(String(30), default="")
+    grace_minutes: Mapped[int] = mapped_column(Integer, default=0)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+
+class LateNoticeRow(Base):
+    __tablename__ = "late_notices"
+    __table_args__ = (UniqueConstraint("user_id", "work_id", "work_date", "slot"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    work_id: Mapped[int] = mapped_column(ForeignKey("works.id"))
+    work_date: Mapped[str] = mapped_column(String(10))
+    slot: Mapped[int] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
 
 class NotificationContactRow(Base):
@@ -297,6 +310,7 @@ class DeductionRow(Base):
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
     period: Mapped[str] = mapped_column(String(7))
+    detail: Mapped[str] = mapped_column(String(160), default="")
     amount: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
@@ -308,9 +322,23 @@ class AlertRow(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    work_id: Mapped[int | None] = mapped_column(ForeignKey("works.id"), nullable=True)
     kind: Mapped[str] = mapped_column(String(20))
     message: Mapped[str] = mapped_column(String(240))
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class ChargeChangeRow(Base):
+    __tablename__ = "charge_changes"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    work_id: Mapped[int] = mapped_column(ForeignKey("works.id"))
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    status: Mapped[str] = mapped_column(String(20), default="pending")
+    before_quantities: Mapped[str] = mapped_column(Text, default="[]")
+    proposed: Mapped[str] = mapped_column(Text, default="[]")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
 class PalmetaChangeRow(Base):

@@ -193,6 +193,47 @@ def test_assigning_a_site_lead_lists_them_on_the_work() -> None:
     assert removed.json()[0]["excludedDates"] == ["2026-10-06"]
 
 
+def test_assigning_a_worker_sends_the_work_summary(monkeypatch) -> None:
+    sent: list[dict] = []
+
+    def fake_template(phone, name, parameters, button_payloads=None, *, document=None, image=None, line_parameters=None, language="es"):
+        sent.append({"phone": phone, "name": name, "parameters": parameters, "image": image, "language": language})
+        return {"ok": True, "template": name}
+
+    monkeypatch.setattr("app.whatsapp.send_template", fake_template)
+    api = client()
+    monkeypatch.setenv("META_TOKEN", "test-token")
+    headers = admin_headers(api)
+    cleared = api.put("/api/works/1/crew", headers=headers, json={"members": []})
+    assert cleared.status_code == 200
+    assert sent == []
+    saved = api.put("/api/works/1/crew", headers=headers, json={
+        "members": [{"workerId": "2", "startDate": "2026-10-05", "dayCount": 5}],
+    })
+    assert saved.status_code == 200
+    assert sent == [{
+        "phone": "912345678",
+        "name": "scope_of_worker",
+        "parameters": [
+            "Maestro de obra",
+            "Inmobiliaria Dominicos",
+            "Av. Apoquindo 4500, Las Condes",
+            "https://www.google.com/maps/search/?api=1&query=-33.4,-70.5",
+            "Retape 12",
+        ],
+        "image": sent[0]["image"],
+        "language": "en",
+    }]
+    filename, content = sent[0]["image"]
+    assert filename == "logo.jpg"
+    assert content.startswith(b"\xff\xd8")
+    again = api.put("/api/works/1/crew", headers=headers, json={
+        "members": [{"workerId": "2", "startDate": "2026-10-06", "dayCount": 4}],
+    })
+    assert again.status_code == 200
+    assert len(sent) == 1
+
+
 def test_roles_statuses_and_schedules_are_numeric() -> None:
     api = client()
     with api.app.state.session_factory() as db:
@@ -556,11 +597,7 @@ def test_contract_pdf_lists_the_agreed_charges() -> None:
     assert "Retape" in initial_text
     assert "12" in initial_text
     assert "El inicio de los trabajos en el inmueble importa aceptación" in initial_text
-    assert "Retape" in updated_text
-    assert "12 a 4" in updated_text
-    assert "ACTUALIZACIÓN DE CONTRATO" in updated_text
-    assert "vuelven a iniciarse" in updated_text
-    assert "aceptada automáticamente" in updated_text
+    assert updated_text == "Retape pasa de 12 a 4."
 
 
 def test_contract_lines_use_one_line_each() -> None:
@@ -620,10 +657,32 @@ def test_work_contract_is_sent_to_the_client(monkeypatch) -> None:
     assert len(sent) == 1
     updated = api.put("/api/works/1/charges", headers=lead, json={"charges": [{"itemId": "1", "quantity": 4}]})
     assert updated.status_code == 200
-    assert updated.json()["notice"] == "Partidas actualizadas. Se envió el contrato por WhatsApp al cliente."
+    assert updated.json()["pendingChange"] is True
+    assert updated.json()["notice"] == "Cambios enviados. Quedan en espera de aprobación."
+    assert updated.json()["charges"][0]["quantity"] == 12
+    assert len(sent) == 1
+    denied = api.post("/api/works/1/charge-change/accept", headers=lead)
+    assert denied.status_code == 403
+    accepted = api.post("/api/works/1/charge-change/accept", headers=headers)
+    assert accepted.status_code == 200
+    assert accepted.json()["pendingChange"] is False
+    assert accepted.json()["charges"][0]["quantity"] == 4
+    assert "Se envió el contrato por WhatsApp al cliente." in accepted.json()["notice"]
     assert sent[1]["name"] == "updated_scope_of_work"
     assert sent[1]["parameters"] == ["Inmobiliaria Dominicos"]
     assert sent[1]["document"][1].startswith(b"%PDF")
+    again = api.put("/api/works/1/charges", headers=lead, json={"charges": [{"itemId": "1", "quantity": 8}]})
+    assert again.status_code == 200
+    rejected = api.post("/api/works/1/charge-change/reject", headers=headers)
+    assert rejected.status_code == 200
+    assert rejected.json()["charges"][0]["quantity"] == 4
+    assert rejected.json()["notice"] == "Cambios rechazados."
+    assert len(sent) == 2
+    log = api.get("/api/works/1/charge-log", headers=headers)
+    assert [item["status"] for item in log.json()] == ["rejected", "accepted"]
+    assert log.json()[1]["lines"][0]["label"] == "Retape"
+    assert log.json()[1]["lines"][0]["before"] == 12
+    assert log.json()[1]["lines"][0]["after"] == 4
     edited = api.put(f"/api/works/{created.json()['id']}", headers=headers, json={
         "name": "Faena contrato",
         "address": "Calle Falsa 123",
@@ -656,8 +715,81 @@ def test_settings_store_many_emails_and_phones() -> None:
     assert saved.status_code == 200
     assert saved.json()["emails"] == ["obra@vitrificadoschile.com", "aviso@vitrificadoschile.com"]
     assert saved.json()["phones"] == ["56911112222", "56933334444"]
+    assert saved.json()["graceMinutes"] == 0
+    grace = api.put("/api/settings", headers=headers, json={
+        "emails": ["obra@vitrificadoschile.com"],
+        "phones": ["56911112222"],
+        "graceMinutes": 15,
+    })
+    assert grace.status_code == 200
+    assert grace.json()["graceMinutes"] == 15
     invalid = api.put("/api/settings", headers=headers, json={"emails": ["sin-arroba"], "phones": []})
     assert invalid.status_code == 400
+    too_long = api.put("/api/settings", headers=headers, json={"graceMinutes": 241, "emails": [], "phones": []})
+    assert too_long.status_code == 400
+    assert api.get("/api/settings", headers=headers).json()["graceMinutes"] == 15
+
+
+def test_late_slot_starts_thirty_minutes_after_grace() -> None:
+    from datetime import date
+
+    from app.domain import late_slot, scheduled_on
+
+    assert late_slot("08:00", 10, 8 * 60 + 20) is None
+    assert late_slot("08:00", 10, 8 * 60 + 40) == 30
+    assert late_slot("08:00", 10, 9 * 60 + 10) == 60
+    monday = date(2026, 10, 5)
+    assert scheduled_on("weekdays", "", 0, set(), monday) is True
+    assert scheduled_on("weekdays", "2026-10-05", 5, {"2026-10-05"}, monday) is False
+    assert scheduled_on("weekdays", "", 0, set(), date(2026, 10, 4)) is False
+
+
+def test_a_late_worker_is_reminded_every_thirty_minutes(monkeypatch) -> None:
+    from datetime import datetime
+
+    from app.late_arrivals import remind_late_workers
+    from app.models import TimeClockRow
+
+    sent: list[dict] = []
+
+    def fake_template(phone, name, parameters, button_payloads=None, *, document=None, image=None, line_parameters=None, language="es"):
+        sent.append({"phone": phone, "name": name, "parameters": parameters, "language": language, "image": image})
+        return {"ok": True, "template": name}
+
+    monkeypatch.setattr("app.whatsapp.send_template", fake_template)
+    api = client()
+    monkeypatch.setenv("META_TOKEN", "test-token")
+    headers = admin_headers(api)
+    api.put("/api/works/2/crew", headers=headers, json={"members": []})
+    saved = api.put("/api/settings", headers=headers, json={"graceMinutes": 10, "emails": [], "phones": []})
+    assert saved.status_code == 200
+    moment = datetime(2026, 10, 5, 8, 40)
+    with api.app.state.session_factory() as db:
+        assert remind_late_workers(db, moment) == 1
+        db.commit()
+    assert sent == [{
+        "phone": "912345678",
+        "name": "late_alert",
+        "language": "es",
+        "parameters": [
+            "Maestro de obra",
+            "30",
+            "Inmobiliaria Dominicos",
+        ],
+        "image": sent[0]["image"],
+    }]
+    filename, content = sent[0]["image"]
+    assert filename == "logo.jpg"
+    assert content.startswith(b"\xff\xd8")
+    with api.app.state.session_factory() as db:
+        assert remind_late_workers(db, moment) == 0
+        assert remind_late_workers(db, datetime(2026, 10, 5, 9, 10)) == 1
+        db.commit()
+    assert sent[-1]["parameters"][1] == "60"
+    with api.app.state.session_factory() as db:
+        db.add(TimeClockRow(work_id=1, user_id=2, location="-33.4,-70.5", photo="", arrive_date="2026-10-05", arrive_time="09:12:00"))
+        db.commit()
+        assert remind_late_workers(db, datetime(2026, 10, 5, 9, 40)) == 0
 
 
 def test_admin_can_roll_the_work_status() -> None:
@@ -721,13 +853,22 @@ def test_settlement_pdf_lists_pay_items_without_deductions() -> None:
 def test_admin_records_a_deduction_for_the_crew_period() -> None:
     api = client()
     headers = admin_headers(api)
+    blank = api.post("/api/deductions", headers=headers, json={
+        "workerId": "3",
+        "period": "2026-10",
+        "detail": "  ",
+        "amount": 5000,
+    })
+    assert blank.status_code == 400
     created = api.post("/api/deductions", headers=headers, json={
         "workerId": "3",
         "period": "2026-10",
+        "detail": "Adelanto",
         "amount": 5000,
     })
     assert created.status_code == 200
     assert created.json()["amount"] == 5000
+    assert created.json()["detail"] == "Adelanto"
     assert created.json()["period"] == "2026-10"
     listed = api.get("/api/deductions", headers=headers)
     assert listed.status_code == 200
@@ -742,7 +883,7 @@ def test_admin_records_a_deduction_for_the_crew_period() -> None:
         "receiptDataUrl": receipt,
         "items": [
             {"label": "Jornada 2026-10-05", "amount": 54000},
-            {"label": "Deducción", "amount": -5000},
+            {"label": "Adelanto", "amount": -5000},
         ],
     })
     assert settlement.status_code == 200
@@ -750,6 +891,7 @@ def test_admin_records_a_deduction_for_the_crew_period() -> None:
     pdf = api.get(f"/api/settlements/{settlement.json()['id']}/pdf", headers=headers)
     text = pdf.content.decode("latin-1", errors="ignore")
     assert "Deducciones" in text
+    assert "Adelanto" in text
     assert "Sin deducciones" not in text
 
 
@@ -776,7 +918,8 @@ def test_alerts_follow_pay_assignment_and_the_lead_finishing_a_work() -> None:
     assert changed.status_code == 200
     modified = api.get("/api/alerts", headers=admin).json()
     assert modified[0]["kind"] == "modified"
-    assert "partidas" in modified[0]["message"]
+    assert modified[0]["workId"] == "1"
+    assert modified[0]["message"] == "El maestro ha solicitado cambios en la obra Inmobiliaria Dominicos."
     receipt = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
     settlement = api.post("/api/settlements", headers=admin, json={
         "workerId": "3",

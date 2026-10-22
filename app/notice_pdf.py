@@ -224,14 +224,31 @@ def html_text(value: str) -> str:
     return str(value or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
-def acceptance_clause(*, updated: bool) -> str:
-    if updated:
-        return (
-            "<b>Quinto: Aceptación de la actualización.</b> Si los trabajos <b>vuelven a iniciarse</b>, "
-            "esta actualización se tiene por <b>aceptada automáticamente</b>. Las partidas y cantidades "
-            "aquí indicadas reemplazan a las pactadas con anterioridad y pasan a ser las únicas exigibles "
-            "entre las partes."
-        )
+def change_sentence(name: str, previous: float | None, quantity: float) -> str:
+    if previous is None or previous == quantity:
+        return ""
+    if previous == 0:
+        return f"Se agrega {name}, cantidad {format_quantity(quantity)}."
+    if quantity == 0:
+        return f"Se quita {name}."
+    return f"{name} pasa de {format_quantity(previous)} a {format_quantity(quantity)}."
+
+
+def update_note_pdf(lines: list[tuple[str, float | None, float]]) -> bytes:
+    sentences = [change_sentence(name, previous, quantity) for name, previous, quantity in lines]
+    text = " ".join(sentence for sentence in sentences if sentence) or "No hay cambios en las partidas."
+    pdf = FPDF()
+    pdf.set_compression(False)
+    pdf.set_auto_page_break(auto=True, margin=20)
+    pdf.set_margins(20, 20, 20)
+    pdf.add_page()
+    pdf.set_font("Helvetica", "", 12)
+    pdf.set_text_color(0, 0, 0)
+    pdf.multi_cell(0, 7, text)
+    return bytes(pdf.output())
+
+
+def acceptance_clause() -> str:
     return (
         "<b>Quinto: Aceptación.</b> El <b>inicio de los trabajos</b> en el inmueble importa "
         "<b>aceptación íntegra</b> de este contrato, de las partidas, de las cantidades y de la jornada aquí "
@@ -312,6 +329,8 @@ def contract_pdf(
     pdf.set_compression(False)
     pdf.set_auto_page_break(auto=True, margin=20)
     pdf.set_margins(20, 16, 20)
+    if updated:
+        return update_note_pdf(lines)
     pdf.add_page()
     mark = logo_path()
     if mark is not None:
@@ -327,7 +346,7 @@ def contract_pdf(
     y = pdf.get_y()
     pdf.line(pdf.l_margin, y, pdf.w - pdf.r_margin, y)
     pdf.ln(6)
-    title = "ACTUALIZACIÓN DE CONTRATO DE PRESTACIÓN DE SERVICIOS" if updated else "CONTRATO DE PRESTACIÓN DE SERVICIOS"
+    title = "CONTRATO DE PRESTACIÓN DE SERVICIOS"
     pdf.set_font(font, "B", 12)
     pdf.set_text_color(0, 0, 0)
     pdf.set_x(pdf.l_margin)
@@ -387,7 +406,7 @@ def contract_pdf(
         "<b>Cuarto: Modificaciones.</b> Todo cambio de partida o de cantidad solo producirá efecto "
         "si consta <b>por escrito</b>. El instrumento actualizado sustituye al anterior en lo modificado.",
     )
-    clause(pdf, font, acceptance_clause(updated=updated), size=8)
+    clause(pdf, font, acceptance_clause(), size=8)
     pdf.ln(2)
     pdf.set_font(font, "", 10)
     pdf.set_x(pdf.l_margin)
