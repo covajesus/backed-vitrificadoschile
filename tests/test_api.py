@@ -685,8 +685,12 @@ def test_settlement_pdf_lists_pay_items_without_deductions() -> None:
     text = pdf.content.decode("latin-1", errors="ignore")
     assert "Jornada 2026-10-05" in text
     assert "Octubre de 2026" in text
+    assert "Haberes" in text
+    assert "Deducciones" in text
     assert "Sin deducciones" in text
+    assert "TOTAL A PAGAR" in text
     assert "Descuento" not in text
+    assert "Comprobante" not in text
     assert api.get(f"/api/settlements/{body['id']}/pdf", headers=helper_headers).status_code == 404
     assert api.delete(f"/api/settlements/{body['id']}", headers=lead_headers).status_code == 403
     removed = api.delete(f"/api/settlements/{body['id']}", headers=headers)

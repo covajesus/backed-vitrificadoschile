@@ -43,6 +43,7 @@ from app.models import (
     DeductionRow,
     NotificationContactRow,
     PalmetaChangeRow,
+    RoleRow,
     SettingRow,
     SettlementRow,
     StatusRow,
@@ -1543,12 +1544,17 @@ def download_settlement(
     if row is None or row.deleted_at is not None or not visible_settlement(account, row):
         fail(404, "La liquidación no existe.")
     user = db.get(UserRow, row.user_id)
+    role = ""
+    if user is not None:
+        role_row = db.get(RoleRow, user.rol_id)
+        role = role_row.rol if role_row is not None else ""
     data = settlement_pdf(
         person=user.name if user is not None else "",
         period=row.period,
         items=settlement_items(row),
         total=row.total,
-        receipt=row.receipt,
+        document_id=user.document_id if user is not None else "",
+        role=role,
     )
     return Response(
         content=data,

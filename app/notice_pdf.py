@@ -1,6 +1,3 @@
-import base64
-import os
-import tempfile
 from datetime import date
 from pathlib import Path
 
@@ -78,31 +75,40 @@ def period_label(period: str) -> str:
     return period
 
 
-def embed_receipt(pdf: FPDF, receipt: str) -> None:
-    if not receipt.startswith("data:image/"):
-        return
-    header, _, encoded = receipt.partition(",")
-    if not encoded:
-        return
-    try:
-        raw = base64.b64decode(encoded)
-    except Exception:
-        return
-    suffix = ".png" if "png" in header else ".jpg"
-    handle = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
-    try:
-        handle.write(raw)
-        handle.close()
-        pdf.ln(4)
-        write_line(pdf, "Comprobante de transferencia", bold=True)
-        pdf.image(handle.name, w=90)
-    except Exception:
-        return
-    finally:
-        try:
-            os.remove(handle.name)
-        except OSError:
-            pass
+def fit_line(pdf: FPDF, text: str, width: float) -> str:
+    value = pdf_text(text)
+    if pdf.get_string_width(value) <= width:
+        return value
+    trimmed = value
+    while trimmed and pdf.get_string_width(f"{trimmed}...") > width:
+        trimmed = trimmed[:-1]
+    return f"{trimmed}..."
+
+
+def money_row(pdf: FPDF, x: float, y: float, width: float, label: str, value: str, *, color: tuple[int, int, int] = (30, 30, 30)) -> float:
+    label_width = width * 0.62
+    pdf.set_font("Helvetica", "", 9)
+    pdf.set_text_color(*color)
+    pdf.set_xy(x, y)
+    pdf.cell(label_width, 6, fit_line(pdf, f"  {label}", label_width - 2))
+    pdf.set_xy(x + label_width, y)
+    pdf.cell(width - label_width, 6, pdf_text(value), align="R")
+    pdf.set_draw_color(226, 226, 226)
+    pdf.set_line_width(0.15)
+    pdf.line(x, y + 6, x + width, y + 6)
+    return y + 6
+
+
+def section_head(pdf: FPDF, x: float, y: float, width: float, title: str, value: str) -> float:
+    label_width = width * 0.62
+    pdf.set_fill_color(243, 244, 246)
+    pdf.set_text_color(17, 24, 39)
+    pdf.set_font("Helvetica", "B", 9)
+    pdf.set_xy(x, y)
+    pdf.cell(label_width, 7, pdf_text(f"  {title}"), fill=True)
+    pdf.set_xy(x + label_width, y)
+    pdf.cell(width - label_width, 7, pdf_text(value), align="R", fill=True)
+    return y + 7
 
 
 def settlement_pdf(
@@ -111,42 +117,101 @@ def settlement_pdf(
     period: str,
     items: list[tuple[str, int]],
     total: int,
-    receipt: str,
+    document_id: str = "",
+    role: str = "",
 ) -> bytes:
     pdf = FPDF()
     pdf.set_compression(False)
-    pdf.set_auto_page_break(auto=True, margin=18)
-    pdf.set_margins(18, 16, 18)
+    pdf.set_auto_page_break(auto=False)
+    pdf.set_margins(14, 14, 14)
     pdf.add_page()
+    content = pdf.epw
+    gap = 8
+    column = (content - gap) / 2
+    left = pdf.l_margin
+    right = left + column + gap
     mark = logo_path()
     if mark is not None:
         try:
-            pdf.image(str(mark), x=18, y=12, w=60)
-            pdf.set_y(32)
+            pdf.image(str(mark), x=pdf.w - pdf.r_margin - 42, y=12, w=42)
         except Exception:
-            pdf.set_y(16)
-    else:
-        pdf.set_y(16)
-    write_line(pdf, "Liquidación de sueldo", bold=True, size=16)
-    write_line(pdf, f"Trabajador: {person}")
-    write_line(pdf, f"Periodo: {period_label(period)}")
+            pass
+    pdf.set_xy(left, 16)
+    pdf.set_font("Helvetica", "", 16)
+    pdf.set_text_color(17, 24, 39)
+    pdf.cell(content - 48, 8, pdf_text("Liquidación de Sueldo"), new_x="LMARGIN", new_y="NEXT")
+    pdf.set_x(left)
+    pdf.set_font("Helvetica", "B", 10)
+    pdf.cell(content - 48, 5, pdf_text("Empleador: Vitrificados Chile"), new_x="LMARGIN", new_y="NEXT")
+    pdf.set_x(left)
+    pdf.set_font("Helvetica", "", 10)
+    pdf.cell(content - 48, 5, pdf_text(f"Mes: {period_label(period)}"), new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(4)
+    pdf.set_draw_color(229, 231, 235)
+    pdf.set_line_width(0.2)
+    pdf.line(left, pdf.get_y(), pdf.w - pdf.r_margin, pdf.get_y())
+    pdf.ln(4)
+    facts = (
+        ("Sr(a):", person or "Trabajador"),
+        ("RUT:", document_id.strip() or "-"),
+        ("Cargo:", role.strip() or "-"),
+    )
+    for label, value in facts:
+        pdf.set_x(left)
+        pdf.set_font("Helvetica", "B", 10)
+        pdf.set_text_color(17, 24, 39)
+        pdf.cell(18, 5, pdf_text(label))
+        pdf.set_font("Helvetica", "", 10)
+        pdf.cell(0, 5, pdf_text(value), new_x="LMARGIN", new_y="NEXT")
     haberes = [(label, amount) for label, amount in items if amount >= 0]
     deductions = [(label, amount) for label, amount in items if amount < 0]
-    write_line(pdf, "Haberes", bold=True)
-    if not haberes:
-        write_line(pdf, "Sin haberes en el periodo.")
-    for label, amount in haberes:
-        write_line(pdf, f"{label}    {money(amount)}")
-    if deductions:
-        pdf.set_text_color(225, 29, 72)
-        write_line(pdf, "Deducciones", bold=True)
-        for label, amount in deductions:
-            write_line(pdf, f"{label}    -{money(abs(amount))}")
-        pdf.set_text_color(0, 0, 0)
+    haber_total = sum(amount for _, amount in haberes)
+    deduction_total = sum(abs(amount) for _, amount in deductions)
+    y = pdf.get_y() + 8
+    y_left = section_head(pdf, left, y, column, "Haberes", money(haber_total))
+    if haberes:
+        for label, amount in haberes:
+            y_left = money_row(pdf, left, y_left, column, label, money(amount))
     else:
-        write_line(pdf, "Sin deducciones.")
-    write_line(pdf, f"Total a pagar: {money(total)}", bold=True)
-    embed_receipt(pdf, receipt)
+        y_left = money_row(pdf, left, y_left, column, "Sin haberes en el periodo.", "-")
+    y_right = section_head(pdf, right, y, column, "Deducciones", money(deduction_total))
+    if deductions:
+        for label, amount in deductions:
+            y_right = money_row(pdf, right, y_right, column, label, money(abs(amount)), color=(225, 29, 72))
+    else:
+        y_right = money_row(pdf, right, y_right, column, "Sin deducciones.", "-", color=(225, 29, 72))
+    y = max(y_left, y_right) + 8
+    bars = (
+        ("TOTAL HABERES", money(haber_total), (243, 244, 246), (17, 24, 39)),
+        ("TOTAL DEDUCCIONES", money(deduction_total), (255, 241, 242), (225, 29, 72)),
+        ("TOTAL A PAGAR", money(total), (117, 92, 71), (255, 255, 255)),
+    )
+    for label, value, fill, color in bars:
+        pdf.set_fill_color(*fill)
+        pdf.set_text_color(*color)
+        pdf.set_font("Helvetica", "B", 10)
+        pdf.set_xy(left, y)
+        pdf.cell(content, 8, pdf_text(f"{label}: {value}"), align="C", fill=True)
+        y += 8
+    pdf.set_xy(left, y + 10)
+    pdf.set_font("Helvetica", "", 9)
+    pdf.set_text_color(55, 65, 81)
+    pdf.multi_cell(
+        content,
+        4.5,
+        pdf_text(
+            "Certifico que he recibido de Vitrificados Chile a mi entera satisfacción el saldo "
+            "indicado en la presente liquidación y no tengo cargo ni cobro posterior que hacer."
+        ),
+    )
+    sign = pdf.get_y() + 16
+    pdf.set_draw_color(107, 114, 128)
+    pdf.set_line_width(0.3)
+    pdf.line(left + 48, sign, left + content - 48, sign)
+    pdf.set_xy(left, sign + 2)
+    pdf.set_font("Helvetica", "", 8)
+    pdf.set_text_color(75, 85, 99)
+    pdf.cell(content, 5, "FIRMA CONFORME", align="C")
     return bytes(pdf.output())
 
 
