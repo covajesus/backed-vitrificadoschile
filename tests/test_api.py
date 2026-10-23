@@ -3,7 +3,7 @@ import os
 from fastapi.testclient import TestClient
 
 from app.main import create_app
-from app.models import RoleRow, StatusRow, WorkScheduleRow
+from app.models import RoleRow, StatusRow, WorkRow, WorkScheduleRow
 from app.notice_pdf import contract_pdf
 from app.whatsapp import format_contract_lines
 
@@ -204,6 +204,12 @@ def test_assigning_a_worker_sends_the_work_summary(monkeypatch) -> None:
     api = client()
     monkeypatch.setenv("META_TOKEN", "test-token")
     headers = admin_headers(api)
+    with api.app.state.session_factory() as db:
+        work = db.get(WorkRow, 1)
+        assert work is not None
+        work.work_notice = "El piso ya está lijado."
+        work.crew_note = "Tocar el timbre del conserje."
+        db.commit()
     cleared = api.put("/api/works/1/crew", headers=headers, json={"members": []})
     assert cleared.status_code == 200
     assert sent == []
@@ -220,9 +226,11 @@ def test_assigning_a_worker_sends_the_work_summary(monkeypatch) -> None:
             "Av. Apoquindo 4500, Las Condes",
             "https://www.google.com/maps/search/?api=1&query=-33.4,-70.5",
             "Retape 12",
+            "El piso ya está lijado.",
+            "Tocar el timbre del conserje.",
         ],
         "image": sent[0]["image"],
-        "language": "en",
+        "language": "es",
     }]
     filename, content = sent[0]["image"]
     assert filename == "logo.jpg"

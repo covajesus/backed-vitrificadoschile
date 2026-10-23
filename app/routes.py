@@ -799,6 +799,8 @@ def deliver_assignment_notice(db: Session, work: WorkRow, user_ids: list[int]) -
                 latitude=work.latitude,
                 longitude=work.longitude,
                 partidas=partidas,
+                work_notice=work.work_notice or "",
+                crew_note=work.crew_note or "",
             )
     except Exception:
         return

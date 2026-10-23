@@ -282,6 +282,8 @@ def notify_worker_assignment(
     latitude: float,
     longitude: float,
     partidas: str,
+    work_notice: str = "",
+    crew_note: str = "",
 ) -> None:
     if len(phone_digits(phone)) < 8 or not configured():
         return
@@ -291,12 +293,14 @@ def notify_worker_assignment(
         address.strip() or "-",
         map_link(latitude, longitude),
         partidas.strip() or "Sin partidas",
+        work_notice.strip() or "-",
+        crew_note.strip() or "-",
     ]
     try:
         logo = brand_logo()
-        sent = send_template(phone, ASSIGNMENT_TEMPLATE, parameters, image=logo, language="en")
+        sent = send_template(phone, ASSIGNMENT_TEMPLATE, parameters, image=logo, language="es")
         if logo is not None and not sent.get("ok"):
-            send_template(phone, ASSIGNMENT_TEMPLATE, parameters, language="en")
+            send_template(phone, ASSIGNMENT_TEMPLATE, parameters, language="es")
     except Exception:
         return
 
