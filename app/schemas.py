@@ -106,6 +106,7 @@ class WorkBody(BaseModel):
     clientPhone: str = ""
     apartment: str = ""
     crewNote: str = ""
+    workNotice: str = ""
     latitude: float | None = None
     longitude: float | None = None
     charges: list[WorkChargeOut] = []

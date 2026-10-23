@@ -533,11 +533,13 @@ def test_charge_items_have_a_price_on_the_lead_and_a_quantity_on_the_work() -> N
         "clientPhone": "987654321",
         "apartment": "1204",
         "crewNote": "Tocar el timbre del conserje.",
+        "workNotice": "El piso ya está lijado.",
         "charges": [{"itemId": item_id, "quantity": 4.5}],
     })
     assert work.status_code == 200
     assert work.json()["apartment"] == "1204"
     assert work.json()["crewNote"] == "Tocar el timbre del conserje."
+    assert work.json()["workNotice"] == "El piso ya está lijado."
     assert work.json()["charges"] == [{"itemId": item_id, "quantity": 4.5}]
     composed = api.post("/api/charge-items", headers=headers, json={
         "name": "Instalación especial",
@@ -597,6 +599,7 @@ def test_contract_pdf_lists_the_agreed_charges() -> None:
     assert "Retape" in initial_text
     assert "12" in initial_text
     assert "El inicio de los trabajos en el inmueble importa aceptación" in initial_text
+    assert "firman dos ejemplares" not in initial_text
     assert updated_text == "Retape pasa de 12 a 4."
 
 

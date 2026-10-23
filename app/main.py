@@ -68,6 +68,7 @@ def ensure_measure_columns(engine) -> None:
     ensure_column(engine, "works", "client_phone", "client_phone VARCHAR(30) NOT NULL DEFAULT ''")
     ensure_column(engine, "works", "apartment", "apartment VARCHAR(40) NOT NULL DEFAULT ''")
     ensure_column(engine, "works", "crew_note", "crew_note VARCHAR(500) NOT NULL DEFAULT ''")
+    ensure_column(engine, "works", "work_notice", "work_notice VARCHAR(500) NOT NULL DEFAULT ''")
     ensure_column(engine, "users", "phone", "phone VARCHAR(30) NOT NULL DEFAULT ''")
     ensure_column(engine, "users", "address", "address VARCHAR(300) NOT NULL DEFAULT ''")
     ensure_column(engine, "users", "document_id", "document_id VARCHAR(40) NOT NULL DEFAULT ''")

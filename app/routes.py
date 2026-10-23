@@ -437,6 +437,7 @@ def create_work(body: WorkBody, _: AccountRow = Depends(require_admin), db: Sess
         client_phone=body.clientPhone.strip(),
         apartment=body.apartment.strip(),
         crew_note=body.crewNote.strip(),
+        work_notice=body.workNotice.strip(),
     )
     db.add(row)
     db.flush()
@@ -476,6 +477,7 @@ def update_work(
     row.client_phone = body.clientPhone.strip()
     row.apartment = body.apartment.strip()
     row.crew_note = body.crewNote.strip()
+    row.work_notice = body.workNotice.strip()
     previous = charge_quantities(db, row.id)
     save_work_charges(db, row, body.charges)
     db.commit()
@@ -506,6 +508,7 @@ def work_fields_error(body: WorkBody) -> str | None:
         body.clientPhone,
         body.apartment,
         body.crewNote,
+        body.workNotice,
     )
 
 

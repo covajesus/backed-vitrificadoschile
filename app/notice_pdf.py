@@ -407,26 +407,6 @@ def contract_pdf(
         "si consta <b>por escrito</b>. El instrumento actualizado sustituye al anterior en lo modificado.",
     )
     clause(pdf, font, acceptance_clause(), size=8)
-    pdf.ln(2)
-    pdf.set_font(font, "", 10)
-    pdf.set_x(pdf.l_margin)
-    pdf.multi_cell(0, 5, "En comprobante, las partes firman dos ejemplares de igual tenor y fecha.", align="J")
-    pdf.ln(12)
-    if pdf.get_y() + 18 > pdf.page_break_trigger:
-        pdf.add_page()
-    y = pdf.get_y()
-    pdf.set_draw_color(0, 0, 0)
-    pdf.set_line_width(0.3)
-    pdf.line(pdf.l_margin, y, pdf.l_margin + 62, y)
-    pdf.line(pdf.l_margin + 96, y, pdf.l_margin + 158, y)
-    pdf.set_xy(pdf.l_margin, y + 2)
-    pdf.set_font(font, "B", 9)
-    pdf.cell(96, 5, "El Cliente")
-    pdf.cell(0, 5, "El Prestador", new_x="LMARGIN", new_y="NEXT")
-    pdf.set_x(pdf.l_margin)
-    pdf.set_font(font, "", 8)
-    pdf.cell(96, 4, client_name or "")
-    pdf.cell(0, 4, "Vitrificados Chile", new_x="LMARGIN", new_y="NEXT")
     return bytes(pdf.output())
 
 

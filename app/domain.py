@@ -98,6 +98,7 @@ def work_error(
     client_phone: str = "",
     apartment: str = "",
     crew_note: str = "",
+    work_notice: str = "",
 ) -> str | None:
     if len(name.strip()) < 3:
         return "El nombre debe tener al menos 3 caracteres."
@@ -123,6 +124,8 @@ def work_error(
         return "El número de departamento es demasiado largo."
     if len(crew_note.strip()) > 500:
         return "El aviso para la cuadrilla es demasiado largo."
+    if len(work_notice.strip()) > 500:
+        return "El aviso de obra es demasiado largo."
     return None
 
 
