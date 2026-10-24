@@ -30,6 +30,17 @@ def minutes_of(value: str) -> int | None:
     return hour * 60 + minute
 
 
+def clock_seconds(value: str) -> int | None:
+    parts = value.strip().split(":")
+    if len(parts) not in (2, 3) or any(len(part) != 2 or not part.isdigit() for part in parts):
+        return None
+    hour, minute = int(parts[0]), int(parts[1])
+    second = int(parts[2]) if len(parts) == 3 else 0
+    if hour > 23 or minute > 59 or second > 59:
+        return None
+    return hour * 3600 + minute * 60 + second
+
+
 WORK_DAY_MODES = {"weekdays", "weekend", "all", "except-sunday"}
 MODE_DAYS = {
     "weekdays": {1, 2, 3, 4, 5},
@@ -104,13 +115,14 @@ def work_error(
     schedule_dates: str = "",
     finish_sample: str = "",
     tint_sample: str = "",
+    arrival_time: str = "",
 ) -> str | None:
     if len(name.strip()) < 3:
         return "El nombre debe tener al menos 3 caracteres."
     if len(address.strip()) < 5:
         return "Indica la dirección de la obra."
     if minutes_of(shift_start) is None:
-        return "Indica el inicio de la jornada."
+        return "Indica la hora de inicio."
     if minutes_of(shift_end) is None:
         return "Indica el término de la jornada."
     if shift_hours(shift_start, shift_end) <= 0:
@@ -139,6 +151,8 @@ def work_error(
         return "Indica los días de la obra."
     if len(finish_sample.strip()) > 160 or len(tint_sample.strip()) > 160:
         return "El tipo de muestra es demasiado largo."
+    if arrival_time.strip() and clock_seconds(arrival_time) is None:
+        return "Indica una hora de llegada válida."
     return None
 
 

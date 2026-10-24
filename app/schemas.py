@@ -99,6 +99,7 @@ class WorkBody(BaseModel):
     address: str
     shiftStart: str
     shiftEnd: str
+    arrivalTime: str = ""
     plannedHours: float
     workDays: str = "weekdays"
     palmetaCount: int = 0
@@ -188,6 +189,7 @@ class CrewMemberBody(BaseModel):
     startDate: str = ""
     dayCount: int = 0
     excludedDates: list[str] = []
+    roleId: int = 0
 
 
 class CrewBody(BaseModel):
@@ -201,6 +203,7 @@ class AssignmentOut(BaseModel):
     startDate: str = ""
     dayCount: int = 0
     excludedDates: list[str] = []
+    roleId: int = 0
 
 
 class ArrivalBody(BaseModel):

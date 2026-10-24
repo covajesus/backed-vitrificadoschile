@@ -10,6 +10,7 @@ def work_out(row: WorkRow, pending_palmeta_count: int | None = None, charges: li
         address=row.address,
         shiftStart=row.shift_start,
         shiftEnd=row.shift_end,
+        arrivalTime=row.arrival_time or "",
         plannedHours=row.planned_hours,
         workDays=row.work_days,
         palmetaCount=row.palmeta_count,
@@ -114,6 +115,7 @@ def assignment_out(row: WorkScheduleRow) -> AssignmentOut:
         startDate=row.start_date or "",
         dayCount=row.day_count or 0,
         excludedDates=[item for item in (row.excluded_dates or "").split(",") if item],
+        roleId=row.role_id or 0,
     )
 
 

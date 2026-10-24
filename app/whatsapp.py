@@ -437,7 +437,7 @@ def notify_palmeta_change(
     *,
     change_id: int,
     client_phone: str,
-    company_phone: str,
+    company_phones: list[str],
     work_name: str,
     client_name: str,
     previous_count: int,
@@ -457,14 +457,12 @@ def notify_palmeta_change(
         f"¿Aceptas el cambio de palmetas en {work_name}, de {previous_count} a {next_count}?",
         [(f"accept_{change_id}", "Acepto"), (f"reject_{change_id}", "No acepto")],
     )
-    company = send_text(
-        company_phone,
-        (
-            f"Cambio de palmetas en {work_name}: de {previous_count} a {next_count}. "
-            f"Se envió el PDF a {client_name} para que acepte o rechace."
-        ),
+    notice = (
+        f"Cambio de palmetas en {work_name}: de {previous_count} a {next_count}. "
+        f"Se envió el PDF a {client_name} para que acepte o rechace."
     )
-    failed = [item for item in (document, buttons, company) if not item.get("ok")]
+    company_messages = [send_text(phone, notice) for phone in company_phones]
+    failed = [item for item in (document, buttons, *company_messages) if not item.get("ok")]
     if failed:
         return failed[0].get("error") or "No se pudo enviar el WhatsApp."
     return "Se envió el PDF al cliente y el aviso a Vitrificados Chile."

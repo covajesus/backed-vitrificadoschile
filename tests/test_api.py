@@ -12,6 +12,7 @@ PHOTO = "data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22/%3E"
 
 def client() -> TestClient:
     os.environ["META_TOKEN"] = ""
+    os.environ["SMTP_HOST"] = ""
     return TestClient(create_app("sqlite://"))
 
 
@@ -213,11 +214,11 @@ def test_assigning_a_site_lead_lists_them_on_the_work() -> None:
         "members": [{"workerId": "2", "startDate": "2026-10-05", "dayCount": 5}],
     })
     assert saved.status_code == 200
-    assert saved.json() == [{"workId": "1", "workerId": "2", "startDate": "2026-10-05", "dayCount": 5, "excludedDates": []}]
+    assert saved.json() == [{"workId": "1", "workerId": "2", "startDate": "2026-10-05", "dayCount": 5, "excludedDates": [], "roleId": 2}]
     listed = api.get("/api/assignments", headers=headers)
     assert listed.status_code == 200
     match = [item for item in listed.json() if item["workId"] == "1" and item["workerId"] == "2"]
-    assert match == [{"workId": "1", "workerId": "2", "startDate": "2026-10-05", "dayCount": 5, "excludedDates": []}]
+    assert match == [{"workId": "1", "workerId": "2", "startDate": "2026-10-05", "dayCount": 5, "excludedDates": [], "roleId": 2}]
     removed = api.put("/api/works/1/crew", headers=headers, json={
         "members": [{"workerId": "2", "startDate": "2026-10-05", "dayCount": 5, "excludedDates": ["2026-10-06"]}],
     })
@@ -376,6 +377,7 @@ def test_work_keeps_the_chosen_working_days() -> None:
         "address": "Calle Falsa 123",
         "shiftStart": "10:00",
         "shiftEnd": "00:00",
+        "arrivalTime": "07:30:20",
         "plannedHours": 8,
         "workDays": "weekdays",
         "palmetaCount": 10,
@@ -388,6 +390,7 @@ def test_work_keeps_the_chosen_working_days() -> None:
     assert midnight.status_code == 200
     assert midnight.json()["shiftStart"] == "10:00"
     assert midnight.json()["shiftEnd"] == "00:00"
+    assert midnight.json()["arrivalTime"] == "07:30:20"
     rejected = api.post("/api/works", headers=headers, json={
         "name": "Faena sabatina",
         "address": "Calle Falsa 123",
@@ -491,7 +494,12 @@ def test_moving_task_blocks_swaps_their_hours() -> None:
 def test_palmeta_change_only_increases_and_waits_for_the_client() -> None:
     api = client()
     admin = admin_headers(api)
-    saved = api.put("/api/settings", headers=admin, json={"companyPhone": "56911112222"})
+    saved = api.put("/api/accounts/1", headers=admin, json={
+        "name": "Administración",
+        "email": "admin@vitrificados.local",
+        "roleId": 1,
+        "phone": "56911112222",
+    })
     assert saved.status_code == 200
     login = api.post("/api/auth/login", json={"email": "lead.worker@vitrificados.local", "password": "demo-site"})
     headers = {"Authorization": f"Bearer {login.json()['token']}"}
@@ -711,7 +719,7 @@ def test_work_contract_is_sent_to_the_client(monkeypatch) -> None:
         ],
     })
     assert created.status_code == 200
-    assert created.json()["notice"] == "Obra guardada. Se envió el contrato por WhatsApp al cliente."
+    assert created.json()["notice"].startswith("Obra guardada. Se envió el contrato por WhatsApp al cliente.")
     saved_charges = {item["itemId"]: item for item in created.json()["charges"]}
     assert saved_charges["1"]["evaluate"] is True
     assert saved_charges["1"]["quantity"] == 3
@@ -778,6 +786,51 @@ def test_work_contract_is_sent_to_the_client(monkeypatch) -> None:
     assert edited.status_code == 200
     assert edited.json()["notice"] == "Obra actualizada."
     assert len(sent) == 3
+
+
+def test_contract_notice_reaches_active_administrators(monkeypatch) -> None:
+    sent: list[dict] = []
+    mailed: list[list[str]] = []
+
+    def fake_template(phone, name, parameters, button_payloads=None, *, document=None, line_parameters=None, image=None, language="es"):
+        sent.append({"phone": phone, "name": name, "parameters": parameters})
+        return {"ok": True, "template": name}
+
+    def fake_mail(recipients, subject, body, filename, pdf):
+        mailed.append(list(recipients))
+        return "Se envió el correo a los destinatarios."
+
+    monkeypatch.setattr("app.whatsapp.send_template", fake_template)
+    monkeypatch.setattr("app.mail.send_contract_email", fake_mail)
+    api = client()
+    monkeypatch.setenv("META_TOKEN", "test-token")
+    headers = admin_headers(api)
+    updated = api.put("/api/accounts/1", headers=headers, json={
+        "name": "Administración",
+        "email": "admin@vitrificados.local",
+        "roleId": 1,
+        "phone": "56911112222",
+    })
+    assert updated.status_code == 200
+    created = api.post("/api/works", headers=headers, json={
+        "name": "Faena aviso",
+        "address": "Calle Falsa 123",
+        "shiftStart": "08:00",
+        "shiftEnd": "17:00",
+        "plannedHours": 8,
+        "workDays": "weekdays",
+        "palmetaCount": 10,
+        "squareMeters": 40,
+        "clientName": "Cliente Norte",
+        "clientPhone": "912345678",
+        "latitude": -33.4,
+        "longitude": -70.5,
+    })
+    assert created.status_code == 200
+    assert mailed == [["admin@vitrificados.local"]]
+    assert {"phone": "56911112222", "name": "alerta_nueva_orden", "parameters": ["Cliente Norte"]} in sent
+    assert "lead.worker@vitrificados.local" not in mailed[0]
+    assert "Se envió el correo a los destinatarios." in created.json()["notice"]
 
 
 def test_settings_store_many_emails_and_phones() -> None:

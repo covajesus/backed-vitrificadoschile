@@ -221,11 +221,8 @@ def deliver_work_contract(
 ) -> str:
     label = saved or ("Partidas actualizadas" if updated else "Obra guardada")
     try:
-        setting = db.get(SettingRow, 1)
-        company_phone = setting.company_phone if setting else ""
-        contacts = db.query(NotificationContactRow).all()
-        emails = [row.value for row in contacts if row.kind == "email"]
-        phones = [row.value for row in contacts if row.kind == "phone"]
+        emails, phones = admin_notice_contacts(db)
+        company_phone = phones[0] if phones else ""
         current = quantities if quantities is not None else charge_quantities(db, work.id)
         lines = client_contract_lines(
             contract_lines(db, current, previous if updated else None, charge_flags(db, work.id))
@@ -448,6 +445,7 @@ def create_work(body: WorkBody, _: AccountRow = Depends(require_admin), db: Sess
         address=body.address.strip(),
         shift_start=body.shiftStart,
         shift_end=body.shiftEnd,
+        arrival_time=body.arrivalTime.strip(),
         planned_hours=shift_hours(body.shiftStart, body.shiftEnd),
         work_days=body.workDays,
         palmeta_count=body.palmetaCount,
@@ -493,6 +491,7 @@ def update_work(
     row.longitude = longitude
     row.shift_start = body.shiftStart
     row.shift_end = body.shiftEnd
+    row.arrival_time = body.arrivalTime.strip()
     row.planned_hours = shift_hours(body.shiftStart, body.shiftEnd)
     row.work_days = body.workDays
     row.palmeta_count = body.palmetaCount
@@ -535,6 +534,7 @@ def work_fields_error(body: WorkBody) -> str | None:
         body.scheduleDates,
         body.finishSample,
         body.tintSample,
+        body.arrivalTime,
     )
 
 
@@ -891,11 +891,15 @@ def replace_crew(
                 fail(400, "La fecha excluida no es válida.")
             if day and day not in excluded:
                 excluded.append(day)
+        role_id = member.roleId if member.roleId in (ROLE_SITE_LEAD, ROLE_HELPER) else person.rol_id
+        if role_id not in (ROLE_SITE_LEAD, ROLE_HELPER):
+            fail(400, "Indica si en esta obra es maestro o ayudante.")
         unique[person.id] = CrewMemberBody(
             workerId=str(person.id),
             startDate=start,
             dayCount=member.dayCount,
             excludedDates=excluded,
+            roleId=role_id,
         )
     db.query(WorkScheduleRow).filter(WorkScheduleRow.work_id == work_key).delete()
     db.add_all(
@@ -905,6 +909,7 @@ def replace_crew(
             start_date=member.startDate,
             day_count=member.dayCount,
             excluded_dates=",".join(member.excludedDates),
+            role_id=member.roleId,
         )
         for user_id, member in unique.items()
     )
@@ -1139,6 +1144,22 @@ def update_profile(
     return priced_account(db, account)
 
 
+def admin_notice_contacts(db: Session) -> tuple[list[str], list[str]]:
+    emails: list[str] = []
+    phones: list[str] = []
+    rows = db.query(AccountRow).filter(AccountRow.rol_id == ROLE_ADMIN, AccountRow.deleted_at.is_(None)).all()
+    for row in rows:
+        if not row.active:
+            continue
+        email = row.email.strip()
+        if "@" in email and email not in emails:
+            emails.append(email)
+        phone = row.phone.strip()
+        if len(phone_digits(phone)) >= 8 and phone not in phones:
+            phones.append(phone)
+    return emails, phones
+
+
 def contact_values(db: Session, kind: str) -> list[str]:
     return [row.value for row in db.query(NotificationContactRow).filter(NotificationContactRow.kind == kind).order_by(NotificationContactRow.id)]
 
@@ -1251,10 +1272,9 @@ def request_palmeta_change(
     ).first()
     if waiting is not None:
         fail(400, "Ya hay un cambio de palmetas esperando la respuesta del cliente.")
-    setting = db.get(SettingRow, 1)
-    company_phone = setting.company_phone if setting else ""
-    if len(phone_digits(company_phone)) < 8:
-        fail(400, "Configura el WhatsApp de Vitrificados Chile.")
+    _, admin_phones = admin_notice_contacts(db)
+    if not admin_phones:
+        fail(400, "Ningún administrador tiene celular.")
     change = PalmetaChangeRow(
         work_id=work.id,
         user_id=account.id,
@@ -1277,7 +1297,7 @@ def request_palmeta_change(
     notice = notify_palmeta_change(
         change_id=change.id,
         client_phone=work.client_phone,
-        company_phone=company_phone,
+        company_phones=admin_phones,
         work_name=work.name,
         client_name=work.client_name,
         previous_count=change.previous_count,
