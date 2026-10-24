@@ -99,6 +99,7 @@ def work_error(
     apartment: str = "",
     crew_note: str = "",
     work_notice: str = "",
+    starts_on: str = "",
 ) -> str | None:
     if len(name.strip()) < 3:
         return "El nombre debe tener al menos 3 caracteres."
@@ -126,7 +127,17 @@ def work_error(
         return "El aviso para la cuadrilla es demasiado largo."
     if len(work_notice.strip()) > 500:
         return "El aviso de obra es demasiado largo."
+    if starts_on.strip() and not valid_start_date(starts_on):
+        return "Indica el día de inicio de la obra."
     return None
+
+
+def valid_start_date(value: str) -> bool:
+    try:
+        datetime.strptime(value.strip(), "%Y-%m-%d")
+    except ValueError:
+        return False
+    return True
 
 
 def format_quantity(value: float) -> str:
@@ -134,6 +145,12 @@ def format_quantity(value: float) -> str:
     if rounded == int(rounded):
         return str(int(rounded))
     return f"{rounded:.2f}".rstrip("0").rstrip(".")
+
+
+def quantity_with_unit(value: float, unit: str = "") -> str:
+    shown = format_quantity(value)
+    clean = unit.strip()
+    return f"{shown} ({clean})" if clean else shown
 
 
 def valid_work_days(value: str) -> bool:

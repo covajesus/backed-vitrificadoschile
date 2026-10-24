@@ -587,7 +587,8 @@ def test_contract_pdf_lists_the_agreed_charges() -> None:
         shift_start="08:00",
         shift_end="17:00",
         work_days="weekdays",
-        lines=[("Retape", None, 12)],
+        starts_on="2026-10-05",
+        lines=[("Retape", None, 200, "un")],
     )
     updated = contract_pdf(
         updated=True,
@@ -597,7 +598,7 @@ def test_contract_pdf_lists_the_agreed_charges() -> None:
         shift_start="08:00",
         shift_end="17:00",
         work_days="weekdays",
-        lines=[("Retape", 12, 4)],
+        lines=[("Retape", 12, 4, "un")],
     )
     initial_text = contract_text(initial)
     updated_text = contract_text(updated)
@@ -605,10 +606,11 @@ def test_contract_pdf_lists_the_agreed_charges() -> None:
     assert b"/DCTDecode" in initial
     assert "Cliente Norte" in initial_text
     assert "Retape" in initial_text
-    assert "12" in initial_text
+    assert "200 (un)" in initial_text
+    assert "5 de Octubre de 2026" in initial_text
     assert "El inicio de los trabajos en el inmueble importa aceptación" in initial_text
     assert "firman dos ejemplares" not in initial_text
-    assert updated_text == "Retape pasa de 12 a 4."
+    assert updated_text == "Retape pasa de 12 (un) a 4 (un)."
 
 
 def test_contract_lines_use_one_line_each() -> None:

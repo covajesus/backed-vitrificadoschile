@@ -76,6 +76,7 @@ class WorkRow(Base):
     apartment: Mapped[str] = mapped_column(String(40), default="")
     crew_note: Mapped[str] = mapped_column(String(500), default="")
     work_notice: Mapped[str] = mapped_column(String(500), default="")
+    starts_on: Mapped[str] = mapped_column(String(10), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

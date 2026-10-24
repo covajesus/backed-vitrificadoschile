@@ -19,6 +19,7 @@ def work_out(row: WorkRow, pending_palmeta_count: int | None = None, charges: li
         apartment=row.apartment or "",
         crewNote=row.crew_note or "",
         workNotice=row.work_notice or "",
+        startsOn=row.starts_on or "",
         status=row.status,
         latitude=row.latitude,
         longitude=row.longitude,

@@ -3,7 +3,7 @@ from pathlib import Path
 
 from fpdf import FPDF
 
-from app.domain import format_quantity, palmeta_amount
+from app.domain import palmeta_amount, quantity_with_unit
 
 MONTHS = (
     "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
@@ -215,6 +215,14 @@ def settlement_pdf(
     return bytes(pdf.output())
 
 
+def spanish_date(value: str) -> str:
+    try:
+        parsed = date.fromisoformat(value.strip())
+    except ValueError:
+        return ""
+    return f"{parsed.day} de {MONTHS[parsed.month - 1]} de {parsed.year}"
+
+
 def issue_date() -> str:
     today = date.today()
     return f"{today.day} de {MONTHS[today.month - 1]} de {today.year}"
@@ -224,18 +232,23 @@ def html_text(value: str) -> str:
     return str(value or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
-def change_sentence(name: str, previous: float | None, quantity: float) -> str:
+def line_measure(line: tuple) -> tuple[str, float | None, float, str]:
+    unit = line[3] if len(line) > 3 and isinstance(line[3], str) else ""
+    return line[0], line[1], line[2], unit
+
+
+def change_sentence(name: str, previous: float | None, quantity: float, unit: str = "") -> str:
     if previous is None or previous == quantity:
         return ""
     if previous == 0:
-        return f"Se agrega {name}, cantidad {format_quantity(quantity)}."
+        return f"Se agrega {name}, cantidad {quantity_with_unit(quantity, unit)}."
     if quantity == 0:
         return f"Se quita {name}."
-    return f"{name} pasa de {format_quantity(previous)} a {format_quantity(quantity)}."
+    return f"{name} pasa de {quantity_with_unit(previous, unit)} a {quantity_with_unit(quantity, unit)}."
 
 
-def update_note_pdf(lines: list[tuple[str, float | None, float]]) -> bytes:
-    sentences = [change_sentence(name, previous, quantity) for name, previous, quantity in lines]
+def update_note_pdf(lines: list[tuple]) -> bytes:
+    sentences = [change_sentence(*line_measure(line)) for line in lines]
     text = " ".join(sentence for sentence in sentences if sentence) or "No hay cambios en las partidas."
     pdf = FPDF()
     pdf.set_compression(False)
@@ -284,11 +297,11 @@ def clause(pdf: FPDF, font: str, html: str, size: float = 11) -> None:
     pdf.write_html(f'<p align="justify"><font face="{font}" size="{size}">{html}</font></p>')
 
 
-def charge_quantity(previous: float | None, quantity: float) -> str:
-    shown = format_quantity(quantity)
+def charge_quantity(previous: float | None, quantity: float, unit: str = "") -> str:
+    shown = quantity_with_unit(quantity, unit)
     if previous is None or previous == quantity:
         return shown
-    return f"{format_quantity(previous)} a {shown}"
+    return f"{quantity_with_unit(previous, unit)} a {shown}"
 
 
 def charge_row(pdf: FPDF, font: str, name: str, quantity: str) -> None:
@@ -321,7 +334,8 @@ def contract_pdf(
     shift_start: str,
     shift_end: str,
     work_days: str,
-    lines: list[tuple[str, int | None, int]],
+    lines: list[tuple],
+    starts_on: str = "",
 ) -> bytes:
     pdf = ContractDocument()
     font = register_arial(pdf)
@@ -359,6 +373,8 @@ def contract_pdf(
     phone = html_text(client_phone or "no informado")
     place = html_text(address or "el domicilio que indique el Cliente")
     days = html_text(work_day_label(work_days) or "los que las partes fijen")
+    started = spanish_date(starts_on)
+    start_sentence = f" El trabajo inicia el <b>{html_text(started)}</b>." if started else ""
     clause(
         pdf,
         font,
@@ -376,7 +392,7 @@ def contract_pdf(
         pdf,
         font,
         "<b>Segundo: Jornada.</b> Los trabajos se realizarán entre las "
-        f"<b>{html_text(shift_start)}</b> y las <b>{html_text(shift_end)}</b> horas, los días <b>{days}</b>. "
+        f"<b>{html_text(shift_start)}</b> y las <b>{html_text(shift_end)}</b> horas, los días <b>{days}</b>.{start_sentence} "
         "El Cliente permitirá el acceso del personal en ese horario.",
     )
     clause(
@@ -397,8 +413,9 @@ def contract_pdf(
     pdf.line(pdf.l_margin, rule, pdf.w - pdf.r_margin, rule)
     if not lines:
         charge_row(pdf, font, "Sin partidas con cantidad.", "-")
-    for name, previous, quantity in lines:
-        charge_row(pdf, font, name, charge_quantity(previous, quantity))
+    for line in lines:
+        name, previous, quantity, unit = line_measure(line)
+        charge_row(pdf, font, name, charge_quantity(previous, quantity, unit))
     pdf.ln(3)
     clause(
         pdf,

@@ -163,7 +163,7 @@ def contract_lines(
     db: Session,
     current: dict[int, float],
     previous: dict[int, float] | None,
-) -> list[tuple[str, float | None, float]]:
+) -> list[tuple[str, float | None, float, str]]:
     keys = set(current)
     if previous is not None:
         keys.update(previous)
@@ -183,15 +183,13 @@ def contract_lines(
         if item.unit_id is not None:
             measure = db.get(MeasureUnitRow, item.unit_id)
             unit = measure.name if measure is not None and measure.deleted_at is None else ""
-        if unit:
-            label = f"{label} · {unit}"
         before = previous.get(item_id, 0) if previous is not None else None
         after = current.get(item_id, 0)
         if before is None and after == 0:
             continue
         if before is not None and before == 0 and after == 0:
             continue
-        lines.append((label, before, after))
+        lines.append((label, before, after, unit))
     lines.sort(key=lambda line: line[0].casefold())
     return lines
 
@@ -221,6 +219,7 @@ def deliver_work_contract(
             shift_start=work.shift_start,
             shift_end=work.shift_end,
             work_days=work.work_days,
+            starts_on=work.starts_on or "",
             lines=lines,
         )
         return notify_work_contract(
@@ -438,6 +437,7 @@ def create_work(body: WorkBody, _: AccountRow = Depends(require_admin), db: Sess
         apartment=body.apartment.strip(),
         crew_note=body.crewNote.strip(),
         work_notice=body.workNotice.strip(),
+        starts_on=body.startsOn.strip(),
     )
     db.add(row)
     db.flush()
@@ -478,6 +478,7 @@ def update_work(
     row.apartment = body.apartment.strip()
     row.crew_note = body.crewNote.strip()
     row.work_notice = body.workNotice.strip()
+    row.starts_on = body.startsOn.strip()
     previous = charge_quantities(db, row.id)
     save_work_charges(db, row, body.charges)
     db.commit()
@@ -509,6 +510,7 @@ def work_fields_error(body: WorkBody) -> str | None:
         body.apartment,
         body.crewNote,
         body.workNotice,
+        body.startsOn,
     )
 
 
@@ -559,11 +561,6 @@ def charge_change_lines(db: Session, before: dict[int, float], after: dict[int, 
             continue
         item = items.get(item_id)
         label = item.name if item is not None else str(item_id)
-        if item is not None and item.unit_id is not None:
-            measure = db.get(MeasureUnitRow, item.unit_id)
-            unit = measure.name if measure is not None and measure.deleted_at is None else ""
-            if unit:
-                label = f"{label} · {unit}"
         lines.append(ChargeChangeLineOut(itemId=str(item_id), label=label, before=previous, after=quantity))
     lines.sort(key=lambda line: line.label.casefold())
     return lines
@@ -784,7 +781,7 @@ def deliver_assignment_notice(db: Session, work: WorkRow, user_ids: list[int]) -
         return
     try:
         lines = contract_lines(db, charge_quantities(db, work.id), None)
-        partidas = format_assignment_partidas([(name, quantity) for name, _previous, quantity in lines])
+        partidas = format_assignment_partidas([(name, quantity, unit) for name, _previous, quantity, unit in lines])
         address = assignment_address(work)
         label = (work.client_name or "").strip() or work.name
         for user_id in user_ids:

@@ -107,6 +107,7 @@ class WorkBody(BaseModel):
     apartment: str = ""
     crewNote: str = ""
     workNotice: str = ""
+    startsOn: str = ""
     latitude: float | None = None
     longitude: float | None = None
     charges: list[WorkChargeOut] = []

@@ -4,7 +4,7 @@ from pathlib import Path
 
 import httpx
 
-from app.domain import format_quantity, phone_digits
+from app.domain import phone_digits, quantity_with_unit
 
 GRAPH_VERSION = "v22.0"
 DEFAULT_PHONE_NUMBER_ID = "790586727468909"
@@ -53,8 +53,14 @@ def clean_whatsapp_text(value: str, *, keep_lines: bool = False) -> str:
     return text.strip()[:1024] or "-"
 
 
-def format_assignment_partidas(lines: list[tuple[str, float]]) -> str:
-    rows = [f"{name} {format_quantity(quantity)}" for name, quantity in lines if quantity > 0]
+def format_assignment_partidas(lines: list[tuple]) -> str:
+    rows = []
+    for line in lines:
+        name, quantity = line[0], line[1]
+        unit = line[2] if len(line) > 2 else ""
+        if quantity <= 0:
+            continue
+        rows.append(f"{name} {quantity_with_unit(quantity, unit)}")
     return ", ".join(rows) or "Sin partidas"
 
 
@@ -64,8 +70,12 @@ def map_link(latitude: float, longitude: float) -> str:
     return f"https://www.google.com/maps/search/?api=1&query={latitude},{longitude}"
 
 
-def format_contract_lines(lines: list[tuple[str, float | None, float]]) -> str:
-    rows = [f"- {name}: {format_quantity(quantity)}." for name, _previous, quantity in lines]
+def format_contract_lines(lines: list[tuple]) -> str:
+    rows = []
+    for line in lines:
+        name, quantity = line[0], line[2]
+        unit = line[3] if len(line) > 3 else ""
+        rows.append(f"- {name}: {quantity_with_unit(quantity, unit)}.")
     if not rows:
         return "Sin partidas con cantidad"
     rows[-1] = rows[-1][:-1]

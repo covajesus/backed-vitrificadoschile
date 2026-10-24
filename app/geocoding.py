@@ -89,7 +89,9 @@ def nominatim_label(item: dict) -> str:
 
 def label_from_google(components: list) -> str:
     street = join_street(component_name(components, "route"), component_name(components, "street_number"))
-    comuna = component_name(components, "locality", "administrative_area_level_3")
+    locality = component_name(components, "locality")
+    specific = component_name(components, "sublocality_level_1", "sublocality", "administrative_area_level_3")
+    comuna = specific if locality.casefold() == "santiago" and specific else (locality or specific)
     region = region_name(component_name(components, "administrative_area_level_1"))
     return join_place(street, comuna, region)
 
@@ -99,9 +101,21 @@ def label_from_nominatim(details: dict) -> str:
         detail_name(details, "road", "pedestrian", "residential", "footway"),
         text(details.get("house_number")),
     )
-    comuna = detail_name(details, "municipality", "city_district", "borough", "town", "village") or text(details.get("city"))
     region = region_name(text(details.get("state")))
-    return join_place(street, comuna, region)
+    return join_place(street, comuna_from_nominatim(details), region)
+
+
+def comuna_from_nominatim(details: dict) -> str:
+    state = text(details.get("state"))
+    code = text(details.get("ISO3166-2-lvl4"))
+    if metro_region(state, code):
+        return detail_name(details, "suburb", "city_district", "municipality", "borough", "town") or text(details.get("city"))
+    return detail_name(details, "city", "town", "municipality", "village") or detail_name(details, "suburb", "city_district")
+
+
+def metro_region(state: str, code: str = "") -> bool:
+    lowered = state.casefold()
+    return code.casefold() == "cl-rm" or lowered.startswith("región metropolitana") or lowered.startswith("region metropolitana")
 
 
 def component_name(components: list, *types: str) -> str:
@@ -153,7 +167,7 @@ def shorten_address(value: str) -> str:
     for raw in value.split(","):
         part = raw.strip()
         lowered = part.casefold()
-        if not part or part.isdigit() or lowered in {"chile"}:
+        if not part or lowered in {"chile"}:
             continue
         if lowered.startswith(("código", "codigo")):
             continue
@@ -163,8 +177,17 @@ def shorten_address(value: str) -> str:
         if lowered.startswith("provincia"):
             continue
         parts.append(part)
+    if len(parts) >= 2 and parts[0].isdigit():
+        parts = [f"{parts[1]} {parts[0]}", *parts[2:]]
     street = parts[0] if parts else ""
-    comuna = parts[1] if len(parts) > 1 else ""
+    places = [part for part in parts[1:] if not part.casefold().startswith("barrio ")]
+    santiago = next((index for index, part in enumerate(places) if part.casefold() == "santiago"), -1)
+    if santiago > 0:
+        comuna = places[santiago - 1]
+    elif places:
+        comuna = places[-1]
+    else:
+        comuna = ""
     return join_place(street, comuna, region)
 
 
