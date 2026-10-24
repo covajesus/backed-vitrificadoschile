@@ -858,9 +858,26 @@ def test_settlement_pdf_lists_pay_items_without_deductions() -> None:
     assert "Comprobante" not in text
     assert api.get(f"/api/settlements/{body['id']}/pdf", headers=helper_headers).status_code == 404
     assert api.delete(f"/api/settlements/{body['id']}", headers=lead_headers).status_code == 403
+    deduction = api.post("/api/deductions", headers=headers, json={
+        "workerId": "2",
+        "period": "2026-10",
+        "detail": "Adelanto",
+        "amount": 5000,
+    })
+    assert deduction.status_code == 200
+    kept = api.post("/api/deductions", headers=headers, json={
+        "workerId": "3",
+        "period": "2026-10",
+        "detail": "Herramienta",
+        "amount": 1500,
+    })
+    assert kept.status_code == 200
     removed = api.delete(f"/api/settlements/{body['id']}", headers=headers)
     assert removed.status_code == 200
     assert api.get(f"/api/settlements/{body['id']}/pdf", headers=headers).status_code == 404
+    listed = api.get("/api/deductions", headers=headers)
+    assert listed.status_code == 200
+    assert [item["detail"] for item in listed.json()] == ["Herramienta"]
 
 
 def test_admin_records_a_deduction_for_the_crew_period() -> None:

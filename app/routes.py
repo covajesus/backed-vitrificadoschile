@@ -1840,6 +1840,15 @@ def delete_settlement(
     if row is None or row.deleted_at is not None:
         fail(404, "La liquidación no existe.")
     row.deleted_at = utcnow()
+    (
+        db.query(DeductionRow)
+        .filter(
+            DeductionRow.user_id == row.user_id,
+            DeductionRow.period == row.period,
+            DeductionRow.deleted_at.is_(None),
+        )
+        .update({DeductionRow.deleted_at: row.deleted_at}, synchronize_session=False)
+    )
     db.commit()
     return {"ok": True}
 
