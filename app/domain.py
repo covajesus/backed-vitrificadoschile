@@ -100,6 +100,8 @@ def work_error(
     crew_note: str = "",
     work_notice: str = "",
     starts_on: str = "",
+    day_count: int = 0,
+    schedule_dates: str = "",
 ) -> str | None:
     if len(name.strip()) < 3:
         return "El nombre debe tener al menos 3 caracteres."
@@ -129,7 +131,15 @@ def work_error(
         return "El aviso de obra es demasiado largo."
     if starts_on.strip() and not valid_start_date(starts_on):
         return "Indica el día de inicio de la obra."
+    if not isinstance(day_count, int) or isinstance(day_count, bool) or day_count < 0:
+        return "Indica cuántos días dura la obra."
+    if not valid_schedule_dates(schedule_dates):
+        return "Indica los días de la obra."
     return None
+
+
+def valid_schedule_dates(value: str) -> bool:
+    return all(not part.strip() or valid_start_date(part) for part in value.split(","))
 
 
 def valid_start_date(value: str) -> bool:

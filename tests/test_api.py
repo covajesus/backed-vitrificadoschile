@@ -308,6 +308,8 @@ def test_work_keeps_the_chosen_working_days() -> None:
     })
     assert created.status_code == 200
     assert created.json()["workDays"] == "except-sunday"
+    assert created.json()["dayCount"] == 0
+    assert created.json()["scheduleDates"] == ""
     custom = api.post("/api/works", headers=headers, json={
         "name": "Faena parcial",
         "address": "Calle Falsa 123",
@@ -315,6 +317,7 @@ def test_work_keeps_the_chosen_working_days() -> None:
         "shiftEnd": "17:00",
         "plannedHours": 8,
         "workDays": "1,3,5",
+        "dayCount": 8,
         "palmetaCount": 10,
         "squareMeters": 40,
         "clientName": "Cliente Norte",
@@ -324,6 +327,7 @@ def test_work_keeps_the_chosen_working_days() -> None:
     })
     assert custom.status_code == 200
     assert custom.json()["workDays"] == "1,3,5"
+    assert custom.json()["dayCount"] == 8
     midnight = api.post("/api/works", headers=headers, json={
         "name": "Faena nocturna",
         "address": "Calle Falsa 123",

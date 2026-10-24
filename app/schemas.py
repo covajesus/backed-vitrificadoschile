@@ -108,6 +108,8 @@ class WorkBody(BaseModel):
     crewNote: str = ""
     workNotice: str = ""
     startsOn: str = ""
+    dayCount: int = 0
+    scheduleDates: str = ""
     latitude: float | None = None
     longitude: float | None = None
     charges: list[WorkChargeOut] = []

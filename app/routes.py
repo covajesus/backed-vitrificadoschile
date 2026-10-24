@@ -438,6 +438,8 @@ def create_work(body: WorkBody, _: AccountRow = Depends(require_admin), db: Sess
         crew_note=body.crewNote.strip(),
         work_notice=body.workNotice.strip(),
         starts_on=body.startsOn.strip(),
+        day_count=body.dayCount,
+        schedule_dates=body.scheduleDates.strip(),
     )
     db.add(row)
     db.flush()
@@ -479,6 +481,8 @@ def update_work(
     row.crew_note = body.crewNote.strip()
     row.work_notice = body.workNotice.strip()
     row.starts_on = body.startsOn.strip()
+    row.day_count = body.dayCount
+    row.schedule_dates = body.scheduleDates.strip()
     previous = charge_quantities(db, row.id)
     save_work_charges(db, row, body.charges)
     db.commit()
@@ -511,6 +515,8 @@ def work_fields_error(body: WorkBody) -> str | None:
         body.crewNote,
         body.workNotice,
         body.startsOn,
+        body.dayCount,
+        body.scheduleDates,
     )
 
 
