@@ -912,6 +912,7 @@ def register_arrival(
         WorkScheduleRow.user_id == person.id,
         WorkScheduleRow.deleted_at.is_(None),
     ).first() is not None
+    manual = account.rol_id == ROLE_ADMIN
     message = arrival_block_reason(
         work_active=work is not None and work.deleted_at is None and work.status in {"active", "working"},
         worker_active=person is not None and person.active,
@@ -919,16 +920,20 @@ def register_arrival(
         photo_data_url=body.photoDataUrl,
         latitude=body.latitude,
         longitude=body.longitude,
+        require_location=not manual,
     )
-    if message or work is None or person is None or body.latitude is None or body.longitude is None:
+    if message or work is None or person is None:
         fail(400, message or "No se pudo registrar la llegada.")
-    if not on_site(work.latitude, work.longitude, body.latitude, body.longitude):
-        fail(400, OFF_SITE_MESSAGE)
+    if not manual and (body.latitude is None or body.longitude is None or not on_site(work.latitude, work.longitude, body.latitude, body.longitude)):
+        fail(400, OFF_SITE_MESSAGE if body.latitude is not None and body.longitude is not None else "Activa el GPS para registrar la llegada.")
     moment = body.at
+    if len(moment) < 16 or moment[4] != "-" or moment[7] != "-" or moment[10] != "T":
+        fail(400, "Indica el día y la hora.")
+    location = f"{body.latitude},{body.longitude}" if body.latitude is not None and body.longitude is not None else ""
     row = TimeClockRow(
         work_id=work.id,
         user_id=person.id,
-        location=f"{body.latitude},{body.longitude}",
+        location=location,
         photo=body.photoDataUrl,
         arrive_date=moment[:10],
         arrive_time=moment[11:19] if len(moment) >= 19 else "00:00:00",
@@ -955,6 +960,15 @@ def required_account_details(body: AccountBody | ProfileBody) -> str | None:
     if not body.accountNumber.strip():
         return "Indica el número de cuenta."
     return None
+
+
+def store_bank_details(db: Session, row: AccountRow, body: AccountBody) -> str | None:
+    if body.roleId == ROLE_ADMIN and not body.bankId.strip() and not body.accountTypeId.strip():
+        return None
+    bank_message = assign_bank(db, row, body.bankId)
+    if bank_message:
+        return bank_message
+    return assign_account_type(db, row, body.accountTypeId)
 
 
 def assign_bank(db: Session, row: AccountRow, bank_id: str) -> str | None:
@@ -1026,12 +1040,9 @@ def create_account(body: AccountBody, _: AccountRow = Depends(require_admin), db
         palmeta_cost=body.palmetaCost if body.roleId == ROLE_SITE_LEAD else 0,
         status_id=account_status_id(body.statusId),
     )
-    bank_message = assign_bank(db, row, body.bankId)
+    bank_message = store_bank_details(db, row, body)
     if bank_message:
         fail(400, bank_message)
-    type_message = assign_account_type(db, row, body.accountTypeId)
-    if type_message:
-        fail(400, type_message)
     db.add(row)
     db.flush()
     save_item_prices(db, row, body.itemPrices)
@@ -1255,12 +1266,9 @@ def update_account(
     row.address = body.address.strip()
     row.document_id = body.documentId.strip()
     row.photo = body.photoDataUrl
-    bank_message = assign_bank(db, row, body.bankId)
+    bank_message = store_bank_details(db, row, body)
     if bank_message:
         fail(400, bank_message)
-    type_message = assign_account_type(db, row, body.accountTypeId)
-    if type_message:
-        fail(400, type_message)
     row.account_number = body.accountNumber.strip()
     row.account_holder = body.accountHolder.strip()
     row.account_holder_document_id = body.accountHolderDocumentId.strip()
@@ -1329,6 +1337,10 @@ def account_error(body: AccountBody, creating: bool) -> str | None:
         return "La contraseña debe tener al menos 4 caracteres."
     if "@" not in body.email:
         return "Indica un correo válido."
+    if body.roleId == ROLE_ADMIN:
+        if len(phone_digits(body.phone)) < 8:
+            return "Indica un teléfono válido."
+        return None
     return required_account_details(body)
 
 

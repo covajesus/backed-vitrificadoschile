@@ -120,8 +120,13 @@ def clock_moment(row: TimeClockRow) -> str:
 
 
 def clock_coordinates(location: str) -> tuple[float, float]:
+    if "," not in (location or ""):
+        return 0.0, 0.0
     latitude, longitude = location.split(",", 1)
-    return float(latitude), float(longitude)
+    try:
+        return float(latitude), float(longitude)
+    except ValueError:
+        return 0.0, 0.0
 
 
 def arrival_out(row: TimeClockRow, person_name: str, work_name: str) -> ArrivalOut:

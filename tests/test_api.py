@@ -35,6 +35,12 @@ def admin_headers(api: TestClient) -> dict[str, str]:
     return {"Authorization": f"Bearer {response.json()['token']}"}
 
 
+def lead_headers(api: TestClient) -> dict[str, str]:
+    response = api.post("/api/auth/login", json={"email": "lead.worker@vitrificados.local", "password": "demo-site"})
+    assert response.status_code == 200
+    return {"Authorization": f"Bearer {response.json()['token']}"}
+
+
 def test_admin_site_can_call_the_login_preflight() -> None:
     api = client()
     response = api.options(
@@ -82,6 +88,16 @@ def test_banks_come_from_the_catalog() -> None:
         "accountTypeId": "999",
     })
     assert rejected.status_code == 400
+    plain = api.post("/api/accounts", headers=headers, json={
+        "name": "Admin Corto",
+        "email": "admin.corto@vitrificados.local",
+        "password": "demo-site",
+        "phone": "+56987654321",
+        "roleId": 1,
+    })
+    assert plain.status_code == 200
+    assert plain.json()["roleId"] == 1
+    assert plain.json()["phone"]
 
 
 def test_admin_sees_seeded_works() -> None:
@@ -115,7 +131,7 @@ def test_worker_cannot_list_accounts() -> None:
 
 def test_arrival_requires_photo_and_gps() -> None:
     api = client()
-    headers = admin_headers(api)
+    headers = lead_headers(api)
     response = api.post("/api/arrivals", headers=headers, json={
         "workId": "1",
         "workerId": "2",
@@ -130,7 +146,7 @@ def test_arrival_requires_photo_and_gps() -> None:
 
 def test_arrival_rejects_a_mark_away_from_the_site() -> None:
     api = client()
-    headers = admin_headers(api)
+    headers = lead_headers(api)
     away = api.post("/api/arrivals", headers=headers, json={
         "workId": "1",
         "workerId": "2",
@@ -151,6 +167,22 @@ def test_arrival_rejects_a_mark_away_from_the_site() -> None:
     })
     assert on_site.status_code == 200
     assert "wa.me" in on_site.json()["whatsappHref"]
+
+
+def test_admin_marks_any_day_without_gps() -> None:
+    api = client()
+    headers = admin_headers(api)
+    marked = api.post("/api/arrivals", headers=headers, json={
+        "workId": "1",
+        "workerId": "3",
+        "at": "2026-09-02T07:15:00",
+        "latitude": None,
+        "longitude": None,
+        "photoDataUrl": PHOTO,
+    })
+    assert marked.status_code == 200
+    assert marked.json()["at"] == "2026-09-02T07:15:00"
+    assert marked.json()["workerId"] == "3"
 
 
 def test_calendar_returns_every_day_of_the_month() -> None:

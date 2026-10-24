@@ -224,6 +224,7 @@ def arrival_block_reason(
     photo_data_url: str,
     latitude: float | None,
     longitude: float | None,
+    require_location: bool = True,
 ) -> str | None:
     if not work_active:
         return "La obra no está activa."
@@ -233,7 +234,7 @@ def arrival_block_reason(
         return "Solo la dotación asignada puede marcar llegada en esta obra."
     if not photo_data_url.startswith("data:image/"):
         return "La fotografía es obligatoria."
-    if latitude is None or longitude is None or not math.isfinite(latitude) or not math.isfinite(longitude):
+    if require_location and (latitude is None or longitude is None or not math.isfinite(latitude) or not math.isfinite(longitude)):
         return "Activa el GPS para registrar la llegada."
     return None
 
