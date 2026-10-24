@@ -317,11 +317,13 @@ def test_site_lead_uses_charge_item_prices_and_helper_requires_hourly_rate() -> 
         "password": "demo-site",
         "roleId": 3,
         "hourlyRate": 7000,
+        "itemPrices": [{"itemId": "1", "amount": 1800}],
         **banking(api, headers, "Luis Pérez"),
     })
     assert helper.status_code == 200
     assert helper.json()["roleId"] == 3
     assert helper.json()["hourlyRate"] == 7000
+    assert helper.json()["itemPrices"] == [{"itemId": "1", "amount": 1800}]
 
 
 def test_work_keeps_the_chosen_working_days() -> None:

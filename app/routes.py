@@ -293,7 +293,7 @@ def priced_account(db: Session, row: AccountRow) -> AccountOut:
 
 def save_item_prices(db: Session, user: AccountRow, prices: list[ItemPriceOut]) -> None:
     db.query(UserItemPriceRow).filter(UserItemPriceRow.user_id == user.id).delete()
-    if user.rol_id != ROLE_SITE_LEAD:
+    if user.rol_id not in {ROLE_SITE_LEAD, ROLE_HELPER}:
         return
     seen: set[int] = set()
     for price in prices:
