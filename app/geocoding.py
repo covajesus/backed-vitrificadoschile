@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -16,8 +17,13 @@ class Place:
         self.longitude = longitude
 
 
+def expand_street_query(query: str) -> str:
+    text = re.sub(r"(?i)(?<!\w)av(?:da)?\.(?=\w)", "Avenida ", query)
+    return re.sub(r"(?i)(?<!\w)av(?:da)?\.?(?!\w)", "Avenida", text)
+
+
 def suggest_addresses(address: str) -> list[Place]:
-    query = address.strip()
+    query = expand_street_query(address.strip())
     if len(query) < 3:
         return []
     key = maps_key()
@@ -84,8 +90,8 @@ def nominatim_label(item: dict) -> str:
 def label_from_google(components: list) -> str:
     street = join_street(component_name(components, "route"), component_name(components, "street_number"))
     comuna = component_name(components, "locality", "administrative_area_level_3")
-    city = city_name(component_name(components, "administrative_area_level_2"))
-    return join_place(street, comuna, city)
+    region = region_name(component_name(components, "administrative_area_level_1"))
+    return join_place(street, comuna, region)
 
 
 def label_from_nominatim(details: dict) -> str:
@@ -93,9 +99,9 @@ def label_from_nominatim(details: dict) -> str:
         detail_name(details, "road", "pedestrian", "residential", "footway"),
         text(details.get("house_number")),
     )
-    comuna = detail_name(details, "municipality", "city_district", "borough", "town", "village")
-    city = text(details.get("city")) or city_name(text(details.get("county"))) or city_name(text(details.get("state")))
-    return join_place(street, comuna, city)
+    comuna = detail_name(details, "municipality", "city_district", "borough", "town", "village") or text(details.get("city"))
+    region = region_name(text(details.get("state")))
+    return join_place(street, comuna, region)
 
 
 def component_name(components: list, *types: str) -> str:
@@ -121,15 +127,11 @@ def join_street(road: str, number: str) -> str:
     return " ".join(part for part in (road.strip(), number.strip()) if part)
 
 
-def city_name(value: str) -> str:
+def region_name(value: str) -> str:
     cleaned = value.strip()
     lowered = cleaned.casefold()
-    if lowered.startswith("provincia de "):
-        return cleaned[13:].strip()
-    if lowered.startswith("región metropolitana de ") or lowered.startswith("region metropolitana de "):
-        return cleaned.split(" de ", 1)[1].strip()
-    if lowered.startswith("provincia") or lowered.startswith("región") or lowered.startswith("region"):
-        return ""
+    if lowered.startswith("región metropolitana") or lowered.startswith("region metropolitana"):
+        return "Región Metropolitana"
     return cleaned
 
 
@@ -147,15 +149,23 @@ def join_place(street: str, comuna: str, city: str) -> str:
 
 def shorten_address(value: str) -> str:
     parts: list[str] = []
+    region = ""
     for raw in value.split(","):
         part = raw.strip()
         lowered = part.casefold()
         if not part or part.isdigit() or lowered in {"chile"}:
             continue
-        if lowered.startswith(("provincia", "región", "region", "código", "codigo")):
+        if lowered.startswith(("código", "codigo")):
+            continue
+        if lowered.startswith(("región", "region")):
+            region = region_name(part)
+            continue
+        if lowered.startswith("provincia"):
             continue
         parts.append(part)
-    return join_place(parts[0] if parts else "", parts[1] if len(parts) > 1 else "", parts[2] if len(parts) > 2 else "")
+    street = parts[0] if parts else ""
+    comuna = parts[1] if len(parts) > 1 else ""
+    return join_place(street, comuna, region)
 
 
 def text(value: object) -> str:
@@ -163,7 +173,7 @@ def text(value: object) -> str:
 
 
 def locate_address(address: str) -> tuple[float, float]:
-    query = address.strip()
+    query = expand_street_query(address.strip())
     if len(query) < 5:
         raise AddressNotFound("Indica la dirección de la obra.")
     key = maps_key()

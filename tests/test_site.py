@@ -1,5 +1,5 @@
 from app.domain import OFF_SITE_MESSAGE, on_site
-from app.geocoding import places_from_google, places_from_nominatim
+from app.geocoding import expand_street_query, places_from_google, places_from_nominatim, shorten_address
 
 
 def test_twenty_meters_is_the_site_radius() -> None:
@@ -40,7 +40,15 @@ def test_address_suggestions_keep_the_written_place_and_its_coordinates() -> Non
             "country": "Chile",
         },
     }])
-    assert google[0].label == "Avenida Apoquindo 4500, Las Condes, Santiago"
+    assert google[0].label == "Avenida Apoquindo 4500, Las Condes, Región Metropolitana"
     assert google[0].latitude == -33.41
-    assert nominatim[0].label == "Til Til 1980, Ñuñoa, Santiago"
+    assert nominatim[0].label == "Til Til 1980, Ñuñoa, Región Metropolitana"
     assert nominatim[0].longitude == -70.60
+    assert shorten_address("Av. Apoquindo 4500, Las Condes, Santiago, Región Metropolitana, 7550000, Chile") == "Av. Apoquindo 4500, Las Condes, Región Metropolitana"
+
+
+def test_avenue_abbreviations_search_as_avenida() -> None:
+    assert expand_street_query("av apoquindo 4500") == "Avenida apoquindo 4500"
+    assert expand_street_query("Av. Apoquindo 4500") == "Avenida Apoquindo 4500"
+    assert expand_street_query("avda.Apoquindo") == "Avenida Apoquindo"
+    assert expand_street_query("Avenida Apoquindo") == "Avenida Apoquindo"
