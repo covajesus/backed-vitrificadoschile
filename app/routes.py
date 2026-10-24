@@ -445,7 +445,7 @@ def create_work(body: WorkBody, _: AccountRow = Depends(require_admin), db: Sess
         address=body.address.strip(),
         shift_start=body.shiftStart,
         shift_end=body.shiftEnd,
-        arrival_time=body.arrivalTime.strip(),
+        arrival_time=body.arrivalTime.strip()[:5],
         planned_hours=shift_hours(body.shiftStart, body.shiftEnd),
         work_days=body.workDays,
         palmeta_count=body.palmetaCount,
@@ -491,7 +491,7 @@ def update_work(
     row.longitude = longitude
     row.shift_start = body.shiftStart
     row.shift_end = body.shiftEnd
-    row.arrival_time = body.arrivalTime.strip()
+    row.arrival_time = body.arrivalTime.strip()[:5]
     row.planned_hours = shift_hours(body.shiftStart, body.shiftEnd)
     row.work_days = body.workDays
     row.palmeta_count = body.palmetaCount
@@ -1085,7 +1085,7 @@ def create_account(body: AccountBody, _: AccountRow = Depends(require_admin), db
         account_holder_document_id=body.accountHolderDocumentId.strip(),
         email=body.email.strip().lower(),
         password_hash=hash_password(body.password),
-        hourly_rate=body.hourlyRate if body.roleId == ROLE_HELPER else 0,
+        hourly_rate=0 if body.roleId == ROLE_ADMIN else body.hourlyRate,
         palmeta_cost=body.palmetaCost if body.roleId == ROLE_SITE_LEAD else 0,
         status_id=account_status_id(body.statusId),
     )
@@ -1342,7 +1342,7 @@ def update_account(
     row.account_holder = body.accountHolder.strip()
     row.account_holder_document_id = body.accountHolderDocumentId.strip()
     row.rol_id = body.roleId
-    row.hourly_rate = body.hourlyRate if body.roleId == ROLE_HELPER else 0
+    row.hourly_rate = 0 if body.roleId == ROLE_ADMIN else body.hourlyRate
     row.palmeta_cost = body.palmetaCost if body.roleId == ROLE_SITE_LEAD else 0
     if body.password:
         row.password_hash = hash_password(body.password)

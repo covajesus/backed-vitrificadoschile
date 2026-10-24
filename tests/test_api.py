@@ -377,7 +377,7 @@ def test_work_keeps_the_chosen_working_days() -> None:
         "address": "Calle Falsa 123",
         "shiftStart": "10:00",
         "shiftEnd": "00:00",
-        "arrivalTime": "07:30:20",
+        "arrivalTime": "07:30",
         "plannedHours": 8,
         "workDays": "weekdays",
         "palmetaCount": 10,
@@ -390,7 +390,7 @@ def test_work_keeps_the_chosen_working_days() -> None:
     assert midnight.status_code == 200
     assert midnight.json()["shiftStart"] == "10:00"
     assert midnight.json()["shiftEnd"] == "00:00"
-    assert midnight.json()["arrivalTime"] == "07:30:20"
+    assert midnight.json()["arrivalTime"] == "07:30"
     rejected = api.post("/api/works", headers=headers, json={
         "name": "Faena sabatina",
         "address": "Calle Falsa 123",

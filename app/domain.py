@@ -30,17 +30,6 @@ def minutes_of(value: str) -> int | None:
     return hour * 60 + minute
 
 
-def clock_seconds(value: str) -> int | None:
-    parts = value.strip().split(":")
-    if len(parts) not in (2, 3) or any(len(part) != 2 or not part.isdigit() for part in parts):
-        return None
-    hour, minute = int(parts[0]), int(parts[1])
-    second = int(parts[2]) if len(parts) == 3 else 0
-    if hour > 23 or minute > 59 or second > 59:
-        return None
-    return hour * 3600 + minute * 60 + second
-
-
 WORK_DAY_MODES = {"weekdays", "weekend", "all", "except-sunday"}
 MODE_DAYS = {
     "weekdays": {1, 2, 3, 4, 5},
@@ -151,7 +140,7 @@ def work_error(
         return "Indica los días de la obra."
     if len(finish_sample.strip()) > 160 or len(tint_sample.strip()) > 160:
         return "El tipo de muestra es demasiado largo."
-    if arrival_time.strip() and clock_seconds(arrival_time) is None:
+    if arrival_time.strip() and minutes_of(arrival_time.strip()[:5]) is None:
         return "Indica una hora de llegada válida."
     return None
 
