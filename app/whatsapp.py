@@ -123,9 +123,12 @@ def map_link(latitude: float, longitude: float) -> str:
 def format_contract_lines(lines: list[tuple]) -> str:
     rows = []
     for line in lines:
+        if len(line) > 4 and not line[4]:
+            continue
         name, quantity = line[0], line[2]
         unit = line[3] if len(line) > 3 else ""
-        rows.append(f"- {name}: {quantity_with_unit(quantity, unit)}.")
+        suffix = " (Evaluar: Si)" if len(line) > 4 and line[4] else ""
+        rows.append(f"- {name}: {quantity_with_unit(quantity, unit)}{suffix}.")
     if not rows:
         return "Sin partidas con cantidad"
     rows[-1] = rows[-1][:-1]

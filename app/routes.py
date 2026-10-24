@@ -144,7 +144,9 @@ def published_work(row: WorkRow, pending: dict[int, int], charges: list[WorkChar
 def work_charge_map(db: Session) -> dict[int, list[WorkChargeOut]]:
     grouped: dict[int, list[WorkChargeOut]] = {}
     for row in db.query(WorkItemRow).all():
-        grouped.setdefault(row.work_id, []).append(WorkChargeOut(itemId=str(row.item_id), quantity=row.quantity))
+        grouped.setdefault(row.work_id, []).append(
+            WorkChargeOut(itemId=str(row.item_id), quantity=row.quantity, evaluate=bool(row.evaluate))
+        )
     return grouped
 
 
@@ -159,11 +161,19 @@ def charge_quantities(db: Session, work_id: int) -> dict[int, float]:
     }
 
 
+def charge_flags(db: Session, work_id: int) -> dict[int, bool]:
+    return {
+        row.item_id: bool(row.evaluate)
+        for row in db.query(WorkItemRow).filter(WorkItemRow.work_id == work_id)
+    }
+
+
 def contract_lines(
     db: Session,
     current: dict[int, float],
     previous: dict[int, float] | None,
-) -> list[tuple[str, float | None, float, str]]:
+    evaluated: dict[int, bool] | None = None,
+) -> list[tuple[str, float | None, float, str, bool]]:
     keys = set(current)
     if previous is not None:
         keys.update(previous)
@@ -175,7 +185,8 @@ def contract_lines(
         row.id: row.name
         for row in db.query(ChargeItemRow).filter(ChargeItemRow.id.in_(parent_ids)).all()
     } if parent_ids else {}
-    lines: list[tuple[str, float | None, float]] = []
+    lines: list[tuple[str, float | None, float, str, bool]] = []
+    marks = evaluated or {}
     for item_id, item in items.items():
         parent = parents.get(item.parent_id) if item.parent_id else None
         label = f"{parent} - {item.name}" if parent else item.name
@@ -185,13 +196,18 @@ def contract_lines(
             unit = measure.name if measure is not None and measure.deleted_at is None else ""
         before = previous.get(item_id, 0) if previous is not None else None
         after = current.get(item_id, 0)
-        if before is None and after == 0:
+        marked = bool(marks.get(item_id))
+        if before is None and after == 0 and not marked:
             continue
-        if before is not None and before == 0 and after == 0:
+        if before is not None and before == 0 and after == 0 and not marked:
             continue
-        lines.append((label, before, after, unit))
+        lines.append((label, before, after, unit, marked))
     lines.sort(key=lambda line: line[0].casefold())
     return lines
+
+
+def client_contract_lines(lines: list[tuple]) -> list[tuple]:
+    return [line for line in lines if len(line) <= 4 or line[4]]
 
 
 def deliver_work_contract(
@@ -200,6 +216,7 @@ def deliver_work_contract(
     *,
     updated: bool,
     previous: dict[int, float] | None = None,
+    quantities: dict[int, float] | None = None,
     saved: str | None = None,
 ) -> str:
     label = saved or ("Partidas actualizadas" if updated else "Obra guardada")
@@ -209,7 +226,10 @@ def deliver_work_contract(
         contacts = db.query(NotificationContactRow).all()
         emails = [row.value for row in contacts if row.kind == "email"]
         phones = [row.value for row in contacts if row.kind == "phone"]
-        lines = contract_lines(db, charge_quantities(db, work.id), previous if updated else None)
+        current = quantities if quantities is not None else charge_quantities(db, work.id)
+        lines = client_contract_lines(
+            contract_lines(db, current, previous if updated else None, charge_flags(db, work.id))
+        )
         address = shorten_address(work.address) or work.address
         pdf = contract_pdf(
             updated=updated,
@@ -250,10 +270,10 @@ def save_work_charges(db: Session, work: WorkRow, charges: list[WorkChargeOut]) 
         if not math.isfinite(charge.quantity) or charge.quantity < 0:
             fail(400, "La cantidad de la partida no puede ser negativa.")
         charge.quantity = round(float(charge.quantity), 2)
-        if charge.quantity == 0:
+        if charge.quantity == 0 and not charge.evaluate:
             continue
         seen.add(item.id)
-        db.add(WorkItemRow(work_id=work.id, item_id=item.id, quantity=charge.quantity))
+        db.add(WorkItemRow(work_id=work.id, item_id=item.id, quantity=charge.quantity, evaluate=1 if charge.evaluate else 0))
 
 
 def price_map(db: Session) -> dict[int, list[ItemPriceOut]]:
@@ -440,6 +460,8 @@ def create_work(body: WorkBody, _: AccountRow = Depends(require_admin), db: Sess
         starts_on=body.startsOn.strip(),
         day_count=body.dayCount,
         schedule_dates=body.scheduleDates.strip(),
+        finish_sample=body.finishSample.strip(),
+        tint_sample=body.tintSample.strip(),
     )
     db.add(row)
     db.flush()
@@ -483,19 +505,13 @@ def update_work(
     row.starts_on = body.startsOn.strip()
     row.day_count = body.dayCount
     row.schedule_dates = body.scheduleDates.strip()
-    previous = charge_quantities(db, row.id)
+    row.finish_sample = body.finishSample.strip()
+    row.tint_sample = body.tintSample.strip()
     save_work_charges(db, row, body.charges)
     db.commit()
     db.refresh(row)
     result = published_work(row, pending_counts(db), work_charges(db, row.id))
-    changed = previous != charge_quantities(db, row.id)
-    result.notice = deliver_work_contract(
-        db,
-        row,
-        updated=True,
-        previous=previous if changed else None,
-        saved="Obra actualizada",
-    )
+    result.notice = "Obra actualizada."
     return result
 
 
@@ -517,6 +533,8 @@ def work_fields_error(body: WorkBody) -> str | None:
         body.startsOn,
         body.dayCount,
         body.scheduleDates,
+        body.finishSample,
+        body.tintSample,
     )
 
 
@@ -615,6 +633,11 @@ def update_work_charges(
     result = published_work(row, pending_counts(db), work_charges(db, row.id))
     if previous == proposed:
         return result
+    merged = dict(previous)
+    for charge in body.charges:
+        item_id = num(charge.itemId)
+        if item_id:
+            merged[item_id] = round(float(charge.quantity), 2) if math.isfinite(charge.quantity) else 0
     current = (
         db.query(ChargeChangeRow)
         .filter(ChargeChangeRow.work_id == row.id, ChargeChangeRow.status == "pending")
@@ -632,7 +655,14 @@ def update_work_charges(
     add_alert(db, None, "modified", f"El maestro ha solicitado cambios en la obra {label}.", row.id)
     db.commit()
     result.pendingChange = True
-    result.notice = "Cambios enviados. Quedan en espera de aprobación."
+    result.notice = deliver_work_contract(
+        db,
+        row,
+        updated=True,
+        previous=previous,
+        quantities=merged,
+        saved="Cambios enviados",
+    )
     return result
 
 
@@ -681,15 +711,29 @@ def accept_charge_change(
     change = pending_charge_change(db, work.id)
     if change is None:
         fail(404, "No hay cambios en espera.")
-    previous = stored_quantities(change.before_quantities)
     proposed = stored_quantities(change.proposed)
-    save_work_charges(db, work, [WorkChargeOut(itemId=str(item_id), quantity=quantity) for item_id, quantity in proposed.items()])
+    flags = charge_flags(db, work.id)
+    kept = {
+        item_id: quantity
+        for item_id, quantity in proposed.items()
+    }
+    for item_id, marked in flags.items():
+        if marked and item_id not in kept:
+            kept[item_id] = 0
+    save_work_charges(
+        db,
+        work,
+        [
+            WorkChargeOut(itemId=str(item_id), quantity=quantity, evaluate=flags.get(item_id, False))
+            for item_id, quantity in kept.items()
+        ],
+    )
     change.status = "accepted"
     change.decided_at = utcnow()
     db.commit()
     db.refresh(work)
     result = published_work(work, pending_counts(db), work_charges(db, work.id))
-    result.notice = deliver_work_contract(db, work, updated=True, previous=previous)
+    result.notice = "Cambios aceptados."
     return result
 
 
@@ -786,8 +830,8 @@ def deliver_assignment_notice(db: Session, work: WorkRow, user_ids: list[int]) -
     if not user_ids:
         return
     try:
-        lines = contract_lines(db, charge_quantities(db, work.id), None)
-        partidas = format_assignment_partidas([(name, quantity, unit) for name, _previous, quantity, unit in lines])
+        lines = contract_lines(db, charge_quantities(db, work.id), None, charge_flags(db, work.id))
+        partidas = format_assignment_partidas([(name, quantity, unit) for name, _previous, quantity, unit, _marked in lines])
         address = assignment_address(work)
         label = (work.client_name or "").strip() or work.name
         for user_id in user_ids:
@@ -1109,6 +1153,7 @@ def published_settings(db: Session) -> SettingOut:
         emails=contact_values(db, "email"),
         phones=phones,
         graceMinutes=row.grace_minutes if row else 0,
+        leadLatePerMinute=row.lead_late_per_minute if row else 0,
     )
 
 
@@ -1145,6 +1190,8 @@ def update_settings(
         fail(400, "Indica un teléfono válido.")
     if body.graceMinutes is not None and (body.graceMinutes < 0 or body.graceMinutes > 240):
         fail(400, "El tiempo de gracia debe estar entre 0 y 240 minutos.")
+    if body.leadLatePerMinute is not None and (body.leadLatePerMinute < 0 or body.leadLatePerMinute > 1_000_000):
+        fail(400, "El monto por minuto debe estar entre 0 y 1.000.000.")
     row = db.get(SettingRow, 1)
     if row is None:
         row = SettingRow(company_phone="")
@@ -1159,6 +1206,8 @@ def update_settings(
         replace_contacts(db, "email", emails)
     if body.graceMinutes is not None:
         row.grace_minutes = body.graceMinutes
+    if body.leadLatePerMinute is not None:
+        row.lead_late_per_minute = body.leadLatePerMinute
     db.commit()
     return published_settings(db)
 

@@ -102,6 +102,8 @@ def work_error(
     starts_on: str = "",
     day_count: int = 0,
     schedule_dates: str = "",
+    finish_sample: str = "",
+    tint_sample: str = "",
 ) -> str | None:
     if len(name.strip()) < 3:
         return "El nombre debe tener al menos 3 caracteres."
@@ -135,6 +137,8 @@ def work_error(
         return "Indica cuántos días dura la obra."
     if not valid_schedule_dates(schedule_dates):
         return "Indica los días de la obra."
+    if len(finish_sample.strip()) > 160 or len(tint_sample.strip()) > 160:
+        return "El tipo de muestra es demasiado largo."
     return None
 
 

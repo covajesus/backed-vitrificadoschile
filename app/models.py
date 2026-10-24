@@ -79,6 +79,8 @@ class WorkRow(Base):
     starts_on: Mapped[str] = mapped_column(String(10), default="")
     day_count: Mapped[int] = mapped_column(Integer, default=0)
     schedule_dates: Mapped[str] = mapped_column(String(8000), default="")
+    finish_sample: Mapped[str] = mapped_column(String(160), default="")
+    tint_sample: Mapped[str] = mapped_column(String(160), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
@@ -225,6 +227,7 @@ class SettingRow(Base):
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     company_phone: Mapped[str] = mapped_column(String(30), default="")
     grace_minutes: Mapped[int] = mapped_column(Integer, default=0)
+    lead_late_per_minute: Mapped[int] = mapped_column(Integer, default=0)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
 
 
@@ -292,6 +295,7 @@ class WorkItemRow(Base):
     work_id: Mapped[int] = mapped_column(ForeignKey("works.id"))
     item_id: Mapped[int] = mapped_column(ForeignKey("charge_items.id"))
     quantity: Mapped[float] = mapped_column(Float, default=0)
+    evaluate: Mapped[int] = mapped_column(Integer, default=0)
 
 
 class SettlementRow(Base):

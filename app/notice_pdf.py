@@ -237,6 +237,20 @@ def line_measure(line: tuple) -> tuple[str, float | None, float, str]:
     return line[0], line[1], line[2], unit
 
 
+def line_marked(line: tuple) -> bool | None:
+    if len(line) <= 4:
+        return None
+    return bool(line[4])
+
+
+def with_evaluate(text: str, marked: bool | None) -> str:
+    if not marked:
+        return text
+    if text.endswith("."):
+        return f"{text[:-1]} (Evaluar: Si)."
+    return f"{text} (Evaluar: Si)"
+
+
 def change_sentence(name: str, previous: float | None, quantity: float, unit: str = "") -> str:
     if previous is None or previous == quantity:
         return ""
@@ -248,7 +262,16 @@ def change_sentence(name: str, previous: float | None, quantity: float, unit: st
 
 
 def update_note_pdf(lines: list[tuple]) -> bytes:
-    sentences = [change_sentence(*line_measure(line)) for line in lines]
+    sentences = []
+    for line in lines:
+        marked = line_marked(line)
+        if marked is False:
+            continue
+        sentence = change_sentence(*line_measure(line))
+        if not sentence and marked:
+            name, _previous, quantity, unit = line_measure(line)
+            sentence = f"{name}: {quantity_with_unit(quantity, unit)}."
+        sentences.append(with_evaluate(sentence, marked) if sentence else "")
     text = " ".join(sentence for sentence in sentences if sentence) or "No hay cambios en las partidas."
     pdf = FPDF()
     pdf.set_compression(False)
@@ -411,11 +434,12 @@ def contract_pdf(
     pdf.set_line_width(0.3)
     rule = pdf.get_y()
     pdf.line(pdf.l_margin, rule, pdf.w - pdf.r_margin, rule)
-    if not lines:
+    shown_lines = [line for line in lines if line_marked(line) is not False]
+    if not shown_lines:
         charge_row(pdf, font, "Sin partidas con cantidad.", "-")
-    for line in lines:
+    for line in shown_lines:
         name, previous, quantity, unit = line_measure(line)
-        charge_row(pdf, font, name, charge_quantity(previous, quantity, unit))
+        charge_row(pdf, font, name, with_evaluate(charge_quantity(previous, quantity, unit), line_marked(line)))
     pdf.ln(3)
     clause(
         pdf,

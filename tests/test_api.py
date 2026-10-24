@@ -345,6 +345,8 @@ def test_work_keeps_the_chosen_working_days() -> None:
     assert created.json()["workDays"] == "except-sunday"
     assert created.json()["dayCount"] == 0
     assert created.json()["scheduleDates"] == ""
+    assert created.json()["finishSample"] == ""
+    assert created.json()["tintSample"] == ""
     custom = api.post("/api/works", headers=headers, json={
         "name": "Faena parcial",
         "address": "Calle Falsa 123",
@@ -353,6 +355,8 @@ def test_work_keeps_the_chosen_working_days() -> None:
         "plannedHours": 8,
         "workDays": "1,3,5",
         "dayCount": 8,
+        "finishSample": "Brillante",
+        "tintSample": "Nogal",
         "palmetaCount": 10,
         "squareMeters": 40,
         "clientName": "Cliente Norte",
@@ -363,6 +367,8 @@ def test_work_keeps_the_chosen_working_days() -> None:
     assert custom.status_code == 200
     assert custom.json()["workDays"] == "1,3,5"
     assert custom.json()["dayCount"] == 8
+    assert custom.json()["finishSample"] == "Brillante"
+    assert custom.json()["tintSample"] == "Nogal"
     midnight = api.post("/api/works", headers=headers, json={
         "name": "Faena nocturna",
         "address": "Calle Falsa 123",
@@ -658,6 +664,12 @@ def test_contract_lines_use_one_line_each() -> None:
         ("Palmetas de pegado", None, 300),
     ])
     assert text == "\u2028- Palmetas de cambio: 100.\u2028- Palmetas de pegado: 300"
+    marked = format_contract_lines([
+        ("Retape", None, 12, "m²", True),
+        ("Balastro", None, 4, "un", False),
+    ])
+    assert marked == "\u2028- Retape: 12 (m²) (Evaluar: Si)"
+    assert "Balastro" not in marked
     assert format_contract_lines([]) == "Sin partidas con cantidad"
 
 
@@ -691,10 +703,22 @@ def test_work_contract_is_sent_to_the_client(monkeypatch) -> None:
         "clientPhone": "912345678",
         "latitude": -33.4,
         "longitude": -70.5,
-        "charges": [{"itemId": "1", "quantity": 3}],
+        "charges": [
+            {"itemId": "1", "quantity": 3, "evaluate": True},
+            {"itemId": "2", "quantity": 8, "evaluate": False},
+        ],
     })
     assert created.status_code == 200
     assert created.json()["notice"] == "Obra guardada. Se envió el contrato por WhatsApp al cliente."
+    saved_charges = {item["itemId"]: item for item in created.json()["charges"]}
+    assert saved_charges["1"]["evaluate"] is True
+    assert saved_charges["1"]["quantity"] == 3
+    assert saved_charges["2"]["evaluate"] is False
+    assert saved_charges["2"]["quantity"] == 8
+    created_text = contract_text(sent[0]["document"][1])
+    assert "Retape" in created_text
+    assert "(Evaluar: Si)" in created_text
+    assert "Palmetas de pago" not in created_text
     assert sent[0]["phone"] == "912345678"
     assert sent[0]["name"] == "scope_of_work"
     assert sent[0]["parameters"] == ["Cliente Norte"]
@@ -710,26 +734,25 @@ def test_work_contract_is_sent_to_the_client(monkeypatch) -> None:
     updated = api.put("/api/works/1/charges", headers=lead, json={"charges": [{"itemId": "1", "quantity": 4}]})
     assert updated.status_code == 200
     assert updated.json()["pendingChange"] is True
-    assert updated.json()["notice"] == "Cambios enviados. Quedan en espera de aprobación."
+    assert "Se envió el contrato por WhatsApp al cliente." in updated.json()["notice"]
     assert updated.json()["charges"][0]["quantity"] == 12
-    assert len(sent) == 1
+    assert len(sent) == 2
+    assert sent[1]["name"] == "updated_scope_of_work"
     denied = api.post("/api/works/1/charge-change/accept", headers=lead)
     assert denied.status_code == 403
     accepted = api.post("/api/works/1/charge-change/accept", headers=headers)
     assert accepted.status_code == 200
     assert accepted.json()["pendingChange"] is False
     assert accepted.json()["charges"][0]["quantity"] == 4
-    assert "Se envió el contrato por WhatsApp al cliente." in accepted.json()["notice"]
-    assert sent[1]["name"] == "updated_scope_of_work"
-    assert sent[1]["parameters"] == ["Inmobiliaria Dominicos"]
-    assert sent[1]["document"][1].startswith(b"%PDF")
+    assert accepted.json()["notice"] == "Cambios aceptados."
+    assert len(sent) == 2
     again = api.put("/api/works/1/charges", headers=lead, json={"charges": [{"itemId": "1", "quantity": 8}]})
     assert again.status_code == 200
     rejected = api.post("/api/works/1/charge-change/reject", headers=headers)
     assert rejected.status_code == 200
     assert rejected.json()["charges"][0]["quantity"] == 4
     assert rejected.json()["notice"] == "Cambios rechazados."
-    assert len(sent) == 2
+    assert len(sent) == 3
     log = api.get("/api/works/1/charge-log", headers=headers)
     assert [item["status"] for item in log.json()] == ["rejected", "accepted"]
     assert log.json()[1]["lines"][0]["label"] == "Retape"
@@ -751,9 +774,8 @@ def test_work_contract_is_sent_to_the_client(monkeypatch) -> None:
         "charges": [{"itemId": "1", "quantity": 3}],
     })
     assert edited.status_code == 200
-    assert edited.json()["notice"] == "Obra actualizada. Se envió el contrato por WhatsApp al cliente."
-    assert sent[-1]["name"] == "updated_scope_of_work"
-    assert sent[-1]["parameters"] == ["Cliente Norte"]
+    assert edited.json()["notice"] == "Obra actualizada."
+    assert len(sent) == 3
 
 
 def test_settings_store_many_emails_and_phones() -> None:
@@ -775,11 +797,23 @@ def test_settings_store_many_emails_and_phones() -> None:
     })
     assert grace.status_code == 200
     assert grace.json()["graceMinutes"] == 15
+    assert grace.json()["leadLatePerMinute"] == 0
+    rate = api.put("/api/settings", headers=headers, json={
+        "emails": ["obra@vitrificadoschile.com"],
+        "phones": ["56911112222"],
+        "leadLatePerMinute": 500,
+    })
+    assert rate.status_code == 200
+    assert rate.json()["leadLatePerMinute"] == 500
+    assert rate.json()["graceMinutes"] == 15
+    too_much = api.put("/api/settings", headers=headers, json={"leadLatePerMinute": 1_000_001, "emails": [], "phones": []})
+    assert too_much.status_code == 400
     invalid = api.put("/api/settings", headers=headers, json={"emails": ["sin-arroba"], "phones": []})
     assert invalid.status_code == 400
     too_long = api.put("/api/settings", headers=headers, json={"graceMinutes": 241, "emails": [], "phones": []})
     assert too_long.status_code == 400
     assert api.get("/api/settings", headers=headers).json()["graceMinutes"] == 15
+    assert api.get("/api/settings", headers=headers).json()["leadLatePerMinute"] == 500
 
 
 def test_late_slot_starts_thirty_minutes_after_grace() -> None:

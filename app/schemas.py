@@ -9,6 +9,7 @@ class ItemPriceOut(BaseModel):
 class WorkChargeOut(BaseModel):
     itemId: str
     quantity: float
+    evaluate: bool = False
 
 
 class WorkChargesBody(BaseModel):
@@ -110,6 +111,8 @@ class WorkBody(BaseModel):
     startsOn: str = ""
     dayCount: int = 0
     scheduleDates: str = ""
+    finishSample: str = ""
+    tintSample: str = ""
     latitude: float | None = None
     longitude: float | None = None
     charges: list[WorkChargeOut] = []
@@ -337,6 +340,7 @@ class SettingBody(BaseModel):
     emails: list[str] | None = None
     phones: list[str] | None = None
     graceMinutes: int | None = None
+    leadLatePerMinute: int | None = None
 
 
 class SettingOut(BaseModel):
@@ -344,6 +348,7 @@ class SettingOut(BaseModel):
     emails: list[str] = []
     phones: list[str] = []
     graceMinutes: int = 0
+    leadLatePerMinute: int = 0
 
 
 class PalmetaChangeBody(BaseModel):

@@ -72,6 +72,8 @@ def ensure_measure_columns(engine) -> None:
     ensure_column(engine, "works", "starts_on", "starts_on VARCHAR(10) NOT NULL DEFAULT ''")
     ensure_column(engine, "works", "day_count", "day_count INTEGER NOT NULL DEFAULT 0")
     ensure_column(engine, "works", "schedule_dates", "schedule_dates VARCHAR(8000) NOT NULL DEFAULT ''")
+    ensure_column(engine, "works", "finish_sample", "finish_sample VARCHAR(160) NOT NULL DEFAULT ''")
+    ensure_column(engine, "works", "tint_sample", "tint_sample VARCHAR(160) NOT NULL DEFAULT ''")
     ensure_column(engine, "users", "phone", "phone VARCHAR(30) NOT NULL DEFAULT ''")
     ensure_column(engine, "users", "address", "address VARCHAR(300) NOT NULL DEFAULT ''")
     ensure_column(engine, "users", "document_id", "document_id VARCHAR(40) NOT NULL DEFAULT ''")
@@ -98,6 +100,8 @@ def ensure_measure_columns(engine) -> None:
     ensure_column(engine, "deductions", "detail", "detail VARCHAR(160) NOT NULL DEFAULT ''")
     ensure_column(engine, "alerts", "work_id", "work_id INTEGER NULL")
     ensure_column(engine, "settings", "grace_minutes", "grace_minutes INTEGER NOT NULL DEFAULT 0")
+    ensure_column(engine, "settings", "lead_late_per_minute", "lead_late_per_minute INTEGER NOT NULL DEFAULT 0")
+    ensure_column(engine, "work_items", "evaluate", "evaluate INTEGER NOT NULL DEFAULT 0")
 
 
 def ensure_hourly_rate(engine) -> None:
