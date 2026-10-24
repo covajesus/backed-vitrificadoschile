@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 from app.main import create_app
 from app.models import RoleRow, StatusRow, WorkRow, WorkScheduleRow
 from app.notice_pdf import contract_pdf
-from app.whatsapp import format_contract_lines
+from app.whatsapp import format_assignment_partidas, format_contract_lines
 
 PHOTO = "data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22/%3E"
 
@@ -681,6 +681,56 @@ def test_contract_lines_use_one_line_each() -> None:
     assert marked == "\u2028- Retape: 12 (m²) (Evaluar: Si)"
     assert "Balastro" not in marked
     assert format_contract_lines([]) == "Sin partidas con cantidad"
+    assert format_assignment_partidas([
+        ("Pulido y Vitrificado - Residencial", 156, "m²", False),
+        ("Tinte", 0, "", True),
+    ]) == "Pulido y Vitrificado - Residencial 156 (m²), Tinte 0 (Evaluar: Si)"
+
+
+def test_a_composed_partida_is_sent_once(monkeypatch) -> None:
+    sent: list[dict] = []
+
+    def fake_template(phone, name, parameters, button_payloads=None, *, document=None, line_parameters=None, image=None, language="es"):
+        sent.append({"document": document, "parameters": parameters, "name": name})
+        return {"ok": True, "template": name}
+
+    monkeypatch.setattr("app.whatsapp.send_template", fake_template)
+    monkeypatch.setattr("app.mail.send_contract_email", lambda *_args, **_kwargs: "")
+    api = client()
+    monkeypatch.setenv("META_TOKEN", "test-token")
+    headers = admin_headers(api)
+    units = {row["name"]: row["id"] for row in api.get("/api/measure-units", headers=headers).json()}
+    composed = api.post("/api/charge-items", headers=headers, json={
+        "name": "Pulido y Vitrificado",
+        "kind": "composed",
+        "lines": [{"name": "Residencial", "unitId": units["m²"]}],
+    })
+    assert composed.status_code == 200
+    parent_id = composed.json()["id"]
+    line_id = composed.json()["lines"][0]["id"]
+    created = api.post("/api/works", headers=headers, json={
+        "name": "Faena compuesta",
+        "address": "Calle Falsa 123",
+        "shiftStart": "08:00",
+        "shiftEnd": "17:00",
+        "plannedHours": 8,
+        "workDays": "weekdays",
+        "palmetaCount": 10,
+        "squareMeters": 40,
+        "clientName": "Cliente Norte",
+        "clientPhone": "912345678",
+        "latitude": -33.4,
+        "longitude": -70.5,
+        "notifyWhatsapp": True,
+        "charges": [
+            {"itemId": parent_id, "quantity": 156, "evaluate": True},
+            {"itemId": line_id, "quantity": 156, "evaluate": True},
+        ],
+    })
+    assert created.status_code == 200
+    text = contract_text(sent[0]["document"][1])
+    assert "Pulido y Vitrificado - Residencial" in text
+    assert text.count("Pulido y Vitrificado") == 1
 
 
 def test_work_contract_is_sent_to_the_client(monkeypatch) -> None:
@@ -713,6 +763,7 @@ def test_work_contract_is_sent_to_the_client(monkeypatch) -> None:
         "clientPhone": "912345678",
         "latitude": -33.4,
         "longitude": -70.5,
+        "notifyWhatsapp": True,
         "charges": [
             {"itemId": "1", "quantity": 3, "evaluate": True},
             {"itemId": "2", "quantity": 8, "evaluate": False},
@@ -788,6 +839,58 @@ def test_work_contract_is_sent_to_the_client(monkeypatch) -> None:
     assert len(sent) == 3
 
 
+def test_admin_partida_edit_reaches_only_the_site_lead(monkeypatch) -> None:
+    sent: list[dict] = []
+
+    def fake_template(phone, name, parameters, button_payloads=None, *, document=None, line_parameters=None, image=None, language="es"):
+        sent.append({"phone": phone, "name": name})
+        return {"ok": True, "template": name}
+
+    monkeypatch.setattr("app.whatsapp.send_template", fake_template)
+    monkeypatch.setattr("app.mail.send_contract_email", lambda *_args, **_kwargs: "")
+    api = client()
+    monkeypatch.setenv("META_TOKEN", "test-token")
+    headers = admin_headers(api)
+    body = {
+        "name": "Faena Los Dominicos",
+        "address": "Av. Apoquindo 4500, Las Condes",
+        "shiftStart": "08:00",
+        "shiftEnd": "17:00",
+        "plannedHours": 8,
+        "workDays": "weekdays",
+        "palmetaCount": 200,
+        "squareMeters": 85,
+        "clientName": "Inmobiliaria Dominicos",
+        "clientPhone": "987654321",
+        "latitude": -33.4,
+        "longitude": -70.5,
+    }
+    same = api.put("/api/works/1", headers=headers, json={
+        **body,
+        "notifyWhatsapp": True,
+        "charges": [{"itemId": "1", "quantity": 12}],
+    })
+    assert same.status_code == 200
+    assert same.json()["notice"] == "Obra actualizada. No se envió el WhatsApp porque las partidas no cambiaron."
+    assert sent == []
+    changed = api.put("/api/works/1", headers=headers, json={
+        **body,
+        "notifyWhatsapp": True,
+        "charges": [{"itemId": "1", "quantity": 20}],
+    })
+    assert changed.status_code == 200
+    assert changed.json()["notice"] == "Obra actualizada. Se envió el WhatsApp al maestro."
+    assert sent == [{"phone": "912345678", "name": "updated_scope_of_work"}]
+    quiet = api.put("/api/works/1", headers=headers, json={
+        **body,
+        "notifyWhatsapp": False,
+        "charges": [{"itemId": "1", "quantity": 30}],
+    })
+    assert quiet.status_code == 200
+    assert quiet.json()["notice"] == "Obra actualizada."
+    assert len(sent) == 1
+
+
 def test_contract_notice_reaches_active_administrators(monkeypatch) -> None:
     sent: list[dict] = []
     mailed: list[list[str]] = []
@@ -825,6 +928,7 @@ def test_contract_notice_reaches_active_administrators(monkeypatch) -> None:
         "clientPhone": "912345678",
         "latitude": -33.4,
         "longitude": -70.5,
+        "notifyWhatsapp": True,
     })
     assert created.status_code == 200
     assert mailed == [["admin@vitrificados.local"]]

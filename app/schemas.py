@@ -117,6 +117,7 @@ class WorkBody(BaseModel):
     latitude: float | None = None
     longitude: float | None = None
     charges: list[WorkChargeOut] = []
+    notifyWhatsapp: bool | None = None
 
 
 class WorkStatusBody(BaseModel):

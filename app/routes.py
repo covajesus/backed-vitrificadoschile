@@ -168,6 +168,47 @@ def charge_flags(db: Session, work_id: int) -> dict[int, bool]:
     }
 
 
+def stored_charges(db: Session, work_id: int) -> dict[int, tuple[float, bool]]:
+    return {
+        row.item_id: (round(float(row.quantity), 2), bool(row.evaluate))
+        for row in db.query(WorkItemRow).filter(WorkItemRow.work_id == work_id)
+    }
+
+
+def incoming_charges(db: Session, charges: list[WorkChargeOut]) -> dict[int, tuple[float, bool]]:
+    incoming: dict[int, tuple[float, bool]] = {}
+    seen: set[int] = set()
+    for charge in charges:
+        item_id = num(charge.itemId)
+        item = db.get(ChargeItemRow, item_id) if item_id else None
+        if item is None or item.deleted_at is not None or item.id in seen:
+            continue
+        if not math.isfinite(charge.quantity) or charge.quantity < 0:
+            continue
+        quantity = round(float(charge.quantity), 2)
+        if quantity == 0 and not charge.evaluate:
+            continue
+        seen.add(item.id)
+        incoming[item.id] = (quantity, bool(charge.evaluate))
+    return incoming
+
+
+def assigned_lead_phones(db: Session, work_id: int) -> list[str]:
+    phones: list[str] = []
+    rows = db.query(WorkScheduleRow).filter(WorkScheduleRow.work_id == work_id, WorkScheduleRow.deleted_at.is_(None)).all()
+    for row in rows:
+        person = db.get(UserRow, row.user_id)
+        if person is None or person.deleted_at is not None or not person.active:
+            continue
+        role_id = row.role_id if row.role_id in (ROLE_SITE_LEAD, ROLE_HELPER) else person.rol_id
+        if role_id != ROLE_SITE_LEAD:
+            continue
+        phone = (person.phone or "").strip()
+        if len(phone_digits(phone)) >= 8 and phone not in phones:
+            phones.append(phone)
+    return phones
+
+
 def contract_lines(
     db: Session,
     current: dict[int, float],
@@ -187,7 +228,10 @@ def contract_lines(
     } if parent_ids else {}
     lines: list[tuple[str, float | None, float, str, bool]] = []
     marks = evaluated or {}
+    parents_with_lines = {item.parent_id for item in items.values() if item.parent_id}
     for item_id, item in items.items():
+        if item.kind == "composed" and item.id in parents_with_lines:
+            continue
         parent = parents.get(item.parent_id) if item.parent_id else None
         label = f"{parent} - {item.name}" if parent else item.name
         unit = ""
@@ -254,6 +298,50 @@ def deliver_work_contract(
         )
     except Exception as exc:
         return f"{label}. No se pudo enviar el contrato: {exc}"
+
+
+def deliver_partida_update_to_leads(db: Session, work: WorkRow) -> str:
+    label = "Obra actualizada"
+    phones = assigned_lead_phones(db, work.id)
+    if not phones:
+        return f"{label}. No se envió el WhatsApp porque la obra no tiene un maestro con celular."
+    try:
+        lines = client_contract_lines(contract_lines(db, charge_quantities(db, work.id), None, charge_flags(db, work.id)))
+        address = shorten_address(work.address) or work.address
+        pdf = contract_pdf(
+            updated=True,
+            client_name=work.client_name,
+            client_phone=work.client_phone,
+            address=address,
+            shift_start=work.shift_start,
+            shift_end=work.shift_end,
+            work_days=work.work_days,
+            starts_on=work.starts_on or "",
+            lines=lines,
+        )
+        sent_any = False
+        last = ""
+        for phone in phones:
+            last = notify_work_contract(
+                work_id=work.id,
+                client_phone=phone,
+                company_phone="",
+                client_name=work.client_name,
+                address=address,
+                lines=lines,
+                pdf=pdf,
+                updated=True,
+                saved=label,
+                emails=[],
+                phones=[],
+            )
+            if "Se envió el contrato por WhatsApp" in last:
+                sent_any = True
+        if sent_any:
+            return f"{label}. Se envió el WhatsApp al maestro."
+        return last.replace("al cliente", "al maestro")
+    except Exception as exc:
+        return f"{label}. No se pudo enviar el WhatsApp al maestro: {exc}"
 
 
 def save_work_charges(db: Session, work: WorkRow, charges: list[WorkChargeOut]) -> None:
@@ -467,7 +555,7 @@ def create_work(body: WorkBody, _: AccountRow = Depends(require_admin), db: Sess
     db.commit()
     db.refresh(row)
     result = published_work(row, pending_counts(db), work_charges(db, row.id))
-    result.notice = deliver_work_contract(db, row, updated=False)
+    result.notice = "Obra guardada." if body.notifyWhatsapp is False else deliver_work_contract(db, row, updated=False)
     return result
 
 
@@ -484,6 +572,7 @@ def update_work(
     message = work_fields_error(body)
     if message:
         fail(400, message)
+    partidas_changed = stored_charges(db, row.id) != incoming_charges(db, body.charges)
     latitude, longitude = chosen_place(body)
     row.name = body.name.strip()
     row.address = body.address.strip()
@@ -510,7 +599,12 @@ def update_work(
     db.commit()
     db.refresh(row)
     result = published_work(row, pending_counts(db), work_charges(db, row.id))
-    result.notice = "Obra actualizada."
+    if body.notifyWhatsapp is not True:
+        result.notice = "Obra actualizada."
+    elif not partidas_changed:
+        result.notice = "Obra actualizada. No se envió el WhatsApp porque las partidas no cambiaron."
+    else:
+        result.notice = deliver_partida_update_to_leads(db, row)
     return result
 
 
@@ -831,7 +925,7 @@ def deliver_assignment_notice(db: Session, work: WorkRow, user_ids: list[int]) -
         return
     try:
         lines = contract_lines(db, charge_quantities(db, work.id), None, charge_flags(db, work.id))
-        partidas = format_assignment_partidas([(name, quantity, unit) for name, _previous, quantity, unit, _marked in lines])
+        partidas = format_assignment_partidas([(name, quantity, unit, marked) for name, _previous, quantity, unit, marked in lines])
         address = assignment_address(work)
         label = (work.client_name or "").strip() or work.name
         for user_id in user_ids:

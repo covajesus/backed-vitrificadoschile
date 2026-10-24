@@ -113,9 +113,13 @@ def format_assignment_partidas(lines: list[tuple]) -> str:
     for line in lines:
         name, quantity = line[0], line[1]
         unit = line[2] if len(line) > 2 else ""
-        if quantity <= 0:
+        marked = bool(line[3]) if len(line) > 3 else False
+        if quantity <= 0 and not marked:
             continue
-        rows.append(f"{name} {quantity_with_unit(quantity, unit)}")
+        text = f"{name} {quantity_with_unit(quantity, unit)}"
+        if marked:
+            text = f"{text} (Evaluar: Si)"
+        rows.append(text)
     return ", ".join(rows) or "Sin partidas"
 
 
