@@ -804,6 +804,10 @@ def deliver_assignment_notice(db: Session, work: WorkRow, user_ids: list[int]) -
                 partidas=partidas,
                 work_notice=work.work_notice or "",
                 crew_note=work.crew_note or "",
+                shift_start=work.shift_start or "",
+                shift_end=work.shift_end or "",
+                work_days=work.work_days or "",
+                schedule_dates=work.schedule_dates or "",
             )
     except Exception:
         return

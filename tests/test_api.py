@@ -209,6 +209,7 @@ def test_assigning_a_worker_sends_the_work_summary(monkeypatch) -> None:
         assert work is not None
         work.work_notice = "El piso ya está lijado."
         work.crew_note = "Tocar el timbre del conserje."
+        work.schedule_dates = "2026-10-24,2026-10-25,2026-10-26"
         db.commit()
     cleared = api.put("/api/works/1/crew", headers=headers, json={"members": []})
     assert cleared.status_code == 200
@@ -228,6 +229,8 @@ def test_assigning_a_worker_sends_the_work_summary(monkeypatch) -> None:
             "Retape 12",
             "El piso ya está lijado.",
             "Tocar el timbre del conserje.",
+            "08:00 a 17:00",
+            "24/10, 25/10 y 26/10",
         ],
         "image": sent[0]["image"],
         "language": "es",

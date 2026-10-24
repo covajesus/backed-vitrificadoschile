@@ -53,6 +53,56 @@ def clean_whatsapp_text(value: str, *, keep_lines: bool = False) -> str:
     return text.strip()[:1024] or "-"
 
 
+DAY_NAMES = {
+    1: "lunes",
+    2: "martes",
+    3: "miércoles",
+    4: "jueves",
+    5: "viernes",
+    6: "sábado",
+    0: "domingo",
+}
+DAY_MODES = {
+    "weekdays": [1, 2, 3, 4, 5],
+    "weekend": [6, 0],
+    "all": [1, 2, 3, 4, 5, 6, 0],
+    "except-sunday": [1, 2, 3, 4, 5, 6],
+}
+
+
+def format_shift(start: str, end: str) -> str:
+    start_clean = start.strip()
+    end_clean = end.strip()
+    if not start_clean or not end_clean:
+        return "-"
+    return f"{start_clean} a {end_clean}"
+
+
+def format_assignment_days(work_days: str, schedule_dates: str = "") -> str:
+    listed = []
+    for part in schedule_dates.split(","):
+        part = part.strip()
+        if len(part) == 10 and part[4] == "-" and part[7] == "-":
+            year, month, day = part.split("-")
+            if year.isdigit() and month.isdigit() and day.isdigit():
+                listed.append((int(year), int(month), int(day)))
+    if listed:
+        listed.sort()
+        labels = [f"{day}/{month}" if len({item[0] for item in listed}) == 1 else f"{day}/{month}/{year}" for year, month, day in listed]
+        if len(labels) == 1:
+            return labels[0]
+        return f"{', '.join(labels[:-1])} y {labels[-1]}"
+    chosen = DAY_MODES.get(work_days.strip())
+    if chosen is None:
+        chosen = [int(part) for part in work_days.split(",") if part.isdigit() and int(part) in DAY_NAMES]
+    names = [DAY_NAMES[day] for day in (1, 2, 3, 4, 5, 6, 0) if day in chosen]
+    if not names:
+        return "-"
+    if len(names) == 1:
+        return names[0]
+    return f"{', '.join(names[:-1])} y {names[-1]}"
+
+
 def format_assignment_partidas(lines: list[tuple]) -> str:
     rows = []
     for line in lines:
@@ -294,6 +344,10 @@ def notify_worker_assignment(
     partidas: str,
     work_notice: str = "",
     crew_note: str = "",
+    shift_start: str = "",
+    shift_end: str = "",
+    work_days: str = "",
+    schedule_dates: str = "",
 ) -> None:
     if len(phone_digits(phone)) < 8 or not configured():
         return
@@ -305,6 +359,8 @@ def notify_worker_assignment(
         partidas.strip() or "Sin partidas",
         work_notice.strip() or "-",
         crew_note.strip() or "-",
+        format_shift(shift_start, shift_end),
+        format_assignment_days(work_days, schedule_dates),
     ]
     try:
         logo = brand_logo()
