@@ -88,10 +88,15 @@ def format_assignment_days(work_days: str, schedule_dates: str = "") -> str:
                 listed.append((int(year), int(month), int(day)))
     if listed:
         listed.sort()
-        labels = [f"{day}/{month}" if len({item[0] for item in listed}) == 1 else f"{day}/{month}/{year}" for year, month, day in listed]
-        if len(labels) == 1:
-            return labels[0]
-        return f"{', '.join(labels[:-1])} y {labels[-1]}"
+        start = listed[0]
+        end = listed[-1]
+        count = len(listed)
+        start_label = f"{start[2]:02d}/{start[1]:02d}/{start[0]}"
+        day_label = "1 día" if count == 1 else f"{count} días"
+        if start == end:
+            return f"{start_label}, {day_label}"
+        end_label = f"{end[2]:02d}/{end[1]:02d}/{end[0]}"
+        return f"{start_label} al {end_label}, {day_label}"
     chosen = DAY_MODES.get(work_days.strip())
     if chosen is None:
         chosen = [int(part) for part in work_days.split(",") if part.isdigit() and int(part) in DAY_NAMES]
@@ -357,13 +362,13 @@ def notify_worker_assignment(
     parameters = [
         worker_name.strip() or "Trabajador",
         work_name.strip() or "Obra",
+        format_shift(shift_start, shift_end),
+        format_assignment_days(work_days, schedule_dates),
         address.strip() or "-",
         map_link(latitude, longitude),
         partidas.strip() or "Sin partidas",
         work_notice.strip() or "-",
         crew_note.strip() or "-",
-        format_shift(shift_start, shift_end),
-        format_assignment_days(work_days, schedule_dates),
     ]
     try:
         logo = brand_logo()
