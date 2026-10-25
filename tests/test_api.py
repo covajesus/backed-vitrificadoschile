@@ -399,10 +399,10 @@ def test_roles_can_be_created_renamed_and_removed() -> None:
     })
     assert missing_rate.status_code == 400
     assert missing_rate.json()["detail"] == "Indica el costo por hora."
-    created = api.post("/api/roles", headers=headers, json={"name": "Supervisor"})
+    created = api.post("/api/roles", headers=headers, json={"name": "Supervisor", "contractTypeId": contract_id})
     assert created.status_code == 200
     role_id = created.json()["id"]
-    renamed = api.put(f"/api/roles/{role_id}", headers=headers, json={"name": "Capataz"})
+    renamed = api.put(f"/api/roles/{role_id}", headers=headers, json={"name": "Capataz", "contractTypeId": contract_id})
     assert renamed.status_code == 200
     assert renamed.json()["name"] == "Capataz"
     blocked = api.delete("/api/roles/1", headers=headers)
@@ -721,7 +721,7 @@ def test_charge_items_have_a_price_on_the_lead_and_a_quantity_on_the_work() -> N
     assert work.json()["apartment"] == "1204"
     assert work.json()["crewNote"] == "Tocar el timbre del conserje."
     assert work.json()["workNotice"] == "El piso ya está lijado."
-    assert work.json()["charges"] == [{"itemId": item_id, "quantity": 4.5}]
+    assert work.json()["charges"] == [{"itemId": item_id, "quantity": 4.5, "evaluate": False}]
     composed = api.post("/api/charge-items", headers=headers, json={
         "name": "Instalación especial",
         "kind": "composed",
@@ -741,6 +741,9 @@ def test_charge_items_have_a_price_on_the_lead_and_a_quantity_on_the_work() -> N
     assert ordered.status_code == 200
     assert [row["id"] for row in ordered.json()] == first
     assert ordered.json()[0]["position"] == 0
+    again = api.get("/api/charge-items", headers=headers)
+    assert [row["id"] for row in again.json()] == first
+    assert again.json()[0]["position"] == 0
 
 
 def contract_text(data: bytes) -> str:

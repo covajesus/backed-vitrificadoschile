@@ -1716,7 +1716,7 @@ def charge_lines(db: Session, parent_id: int) -> list[ChargeItemRow]:
     return db.query(ChargeItemRow).filter(
         ChargeItemRow.parent_id == parent_id,
         ChargeItemRow.deleted_at.is_(None),
-    ).order_by(ChargeItemRow.name).all()
+    ).order_by(ChargeItemRow.position, ChargeItemRow.id).all()
 
 
 def measure_name(db: Session, unit_id: int | None) -> str:
@@ -1785,6 +1785,7 @@ def save_charge_lines(db: Session, parent: ChargeItemRow, body: ChargeItemBody) 
             match.name = name
             match.unit_id = unit_id
             match.deleted_at = None
+        match.position = len(kept)
         kept.add(match.id)
     for row in current:
         if row.id not in kept and row.deleted_at is None:
@@ -1845,9 +1846,13 @@ def reorder_charge_items(
         ChargeItemRow.parent_id.is_(None),
     ).all()
     by_id = {str(row.id): row for row in rows}
-    if set(body.ids) != set(by_id):
+    incoming = [item_id for item_id in body.ids if item_id in by_id]
+    if not incoming:
         fail(400, "El orden de las partidas no es válido.")
-    for index, item_id in enumerate(body.ids):
+    seen = set(incoming)
+    rest = [item_id for item_id in by_id if item_id not in seen]
+    rest.sort(key=lambda item_id: (by_id[item_id].position, by_id[item_id].name))
+    for index, item_id in enumerate([*incoming, *rest]):
         by_id[item_id].position = index
     db.commit()
     ordered = sorted(rows, key=lambda row: row.position)
@@ -1923,12 +1928,10 @@ def role_out(db: Session, row: RoleRow) -> RoleOut:
     )
 
 
-def stored_contract_type_id(db: Session, raw: str) -> int | None:
+def stored_contract_type_id(db: Session, raw: str) -> int:
     value = raw.strip()
-    if not value:
-        return None
     if not value.isdigit():
-        fail(400, "El tipo de contrato no es válido.")
+        fail(400, "Selecciona el tipo de contrato.")
     kind = db.get(ContractTypeRow, int(value))
     if kind is None or kind.deleted_at is not None:
         fail(400, "El tipo de contrato no es válido.")
