@@ -10,7 +10,6 @@ def work_out(row: WorkRow, pending_palmeta_count: int | None = None, charges: li
         address=row.address,
         shiftStart=row.shift_start,
         shiftEnd=row.shift_end,
-        arrivalTime=(row.arrival_time or "")[:5],
         plannedHours=row.planned_hours,
         workDays=row.work_days,
         palmetaCount=row.palmeta_count,

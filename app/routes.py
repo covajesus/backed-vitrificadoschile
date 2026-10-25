@@ -14,6 +14,7 @@ from app.deps import current_account, get_db, require_admin
 from app.domain import (
     OFF_SITE_MESSAGE,
     arrival_block_reason,
+    client_ride_for,
     minutes_of,
     on_site,
     palmeta_increase_error,
@@ -24,7 +25,7 @@ from app.domain import (
     work_error,
 )
 from app.notice_pdf import contract_pdf, money, palmeta_change_pdf, period_label, settlement_pdf
-from app.whatsapp import clean_phone, format_assignment_partidas, format_partida_changes, notify_palmeta_change, notify_scope_request, notify_updated_scope, notify_work_contract, notify_worker_assignment
+from app.whatsapp import clean_phone, format_assignment_partidas, format_partida_changes, notify_palmeta_change, notify_scope_request, notify_successful_mark, notify_updated_scope, notify_work_contract, notify_worker_assignment
 from app.geocoding import AddressNotFound, locate_address, shorten_address, suggest_addresses
 from app.models import (
     CODE_STATUS,
@@ -41,6 +42,7 @@ from app.models import (
     BankAccountTypeRow,
     BankRow,
     ChargeItemRow,
+    ClientRideRow,
     DeductionRow,
     NotificationContactRow,
     MeasureUnitRow,
@@ -69,6 +71,8 @@ from app.schemas import (
     BankOut,
     ArrivalBody,
     ArrivalOut,
+    ClientRideBody,
+    ClientRideOut,
     AssignmentOut,
     ChargeItemBody,
     ChargeItemOut,
@@ -557,7 +561,6 @@ def create_work(body: WorkBody, _: AccountRow = Depends(require_admin), db: Sess
         address=body.address.strip(),
         shift_start=body.shiftStart,
         shift_end=body.shiftEnd,
-        arrival_time=body.arrivalTime.strip()[:5],
         planned_hours=shift_hours(body.shiftStart, body.shiftEnd),
         work_days=body.workDays,
         palmeta_count=body.palmetaCount,
@@ -605,7 +608,6 @@ def update_work(
     row.longitude = longitude
     row.shift_start = body.shiftStart
     row.shift_end = body.shiftEnd
-    row.arrival_time = body.arrivalTime.strip()[:5]
     row.planned_hours = shift_hours(body.shiftStart, body.shiftEnd)
     row.work_days = body.workDays
     row.palmeta_count = body.palmetaCount
@@ -653,7 +655,6 @@ def work_fields_error(body: WorkBody) -> str | None:
         body.scheduleDates,
         body.finishSample,
         body.tintSample,
-        body.arrivalTime,
     )
 
 
@@ -1096,11 +1097,14 @@ def register_arrival(
     )
     if message or work is None or person is None:
         fail(400, message or "No se pudo registrar la llegada.")
-    if not manual and (body.latitude is None or body.longitude is None or not on_site(work.latitude, work.longitude, body.latitude, body.longitude)):
-        fail(400, OFF_SITE_MESSAGE if body.latitude is not None and body.longitude is not None else "Activa el GPS para registrar la llegada.")
     moment = body.at
     if len(moment) < 16 or moment[4] != "-" or moment[7] != "-" or moment[10] != "T":
         fail(400, "Indica el día y la hora.")
+    ride = client_ride_for(stored_client_rides(db), work.id, person.id, moment[:10])
+    site_latitude = ride[1] if ride is not None else work.latitude
+    site_longitude = ride[2] if ride is not None else work.longitude
+    if not manual and (body.latitude is None or body.longitude is None or not on_site(site_latitude, site_longitude, body.latitude, body.longitude)):
+        fail(400, OFF_SITE_MESSAGE if body.latitude is not None and body.longitude is not None else "Activa el GPS para registrar la llegada.")
     location = f"{body.latitude},{body.longitude}" if body.latitude is not None and body.longitude is not None else ""
     row = TimeClockRow(
         work_id=work.id,
@@ -1113,7 +1117,99 @@ def register_arrival(
     db.add(row)
     db.commit()
     db.refresh(row)
+    work_name = (work.client_name or "").strip() or work.name
+    notify_successful_mark(phone=person.phone or "", worker_name=person.name, work_name=work_name, arrival_time=row.arrive_time[:5])
     return arrival_out(row, person.name, work.name)
+
+
+def stored_client_rides(db: Session) -> list[tuple[int, str, str, str, float, float]]:
+    rows = db.query(ClientRideRow).filter(ClientRideRow.deleted_at.is_(None)).all()
+    return [
+        (row.work_id, row.worker_ids or "", row.ride_dates or "", row.arrival_time or "", row.latitude, row.longitude)
+        for row in rows
+    ]
+
+
+def client_ride_out(row: ClientRideRow) -> ClientRideOut:
+    workers = [item.strip() for item in (row.worker_ids or "").split(",") if item.strip()]
+    return ClientRideOut(
+        id=str(row.id),
+        workId=str(row.work_id),
+        address=row.address,
+        arrivalTime=(row.arrival_time or "")[:5],
+        dates=row.ride_dates or "",
+        workerIds=workers,
+        latitude=row.latitude,
+        longitude=row.longitude,
+    )
+
+
+@router.get("/client-rides", response_model=list[ClientRideOut])
+def list_client_rides(_: AccountRow = Depends(require_admin), db: Session = Depends(get_db)) -> list[ClientRideOut]:
+    rows = db.query(ClientRideRow).filter(ClientRideRow.deleted_at.is_(None)).order_by(ClientRideRow.id.desc()).all()
+    return [client_ride_out(row) for row in rows]
+
+
+@router.post("/client-rides", response_model=ClientRideOut)
+def create_client_ride(body: ClientRideBody, _: AccountRow = Depends(require_admin), db: Session = Depends(get_db)) -> ClientRideOut:
+    work = db.get(WorkRow, num(body.workId))
+    if work is None or work.deleted_at is not None:
+        fail(404, "Obra no encontrada.")
+    if len(body.address.strip()) < 5:
+        fail(400, "Indica la dirección.")
+    arrival = body.arrivalTime.strip()[:5]
+    if minutes_of(arrival) is None:
+        fail(400, "Indica la hora de llegada.")
+    dates = []
+    for item in body.dates.split(","):
+        day = item.strip()
+        if not day:
+            continue
+        if re.fullmatch(r"\d{4}-\d{2}-\d{2}", day) is None:
+            fail(400, "La fecha del traslado no es válida.")
+        if day not in dates:
+            dates.append(day)
+    if not dates:
+        fail(400, "Selecciona los días en que el cliente los lleva.")
+    assigned = {
+        row.user_id
+        for row in db.query(WorkScheduleRow).filter(WorkScheduleRow.work_id == work.id, WorkScheduleRow.deleted_at.is_(None)).all()
+    }
+    workers = []
+    for item in body.workerIds:
+        user_key = num(item)
+        if user_key not in assigned:
+            fail(400, "La dotación incluye una persona que no está en la obra.")
+        if str(user_key) not in workers:
+            workers.append(str(user_key))
+    if not workers:
+        fail(400, "Selecciona al menos un trabajador.")
+    if body.latitude is not None and body.longitude is not None and math.isfinite(body.latitude) and math.isfinite(body.longitude):
+        latitude, longitude = body.latitude, body.longitude
+    else:
+        latitude, longitude = place(body.address)
+    row = ClientRideRow(
+        work_id=work.id,
+        address=body.address.strip(),
+        latitude=latitude,
+        longitude=longitude,
+        arrival_time=arrival,
+        ride_dates=",".join(dates),
+        worker_ids=",".join(workers),
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return client_ride_out(row)
+
+
+@router.delete("/client-rides/{ride_id}", status_code=204)
+def delete_client_ride(ride_id: str, _: AccountRow = Depends(require_admin), db: Session = Depends(get_db)) -> None:
+    row = db.get(ClientRideRow, num(ride_id))
+    if row is None or row.deleted_at is not None:
+        fail(404, "El traslado no existe.")
+    row.deleted_at = utcnow()
+    db.commit()
 
 
 def required_account_details(body: AccountBody | ProfileBody) -> str | None:

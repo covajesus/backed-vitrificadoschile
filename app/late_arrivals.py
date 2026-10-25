@@ -6,7 +6,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.domain import late_slot, scheduled_on
+from app.domain import client_ride_for, late_slot, scheduled_on
 from app.models import (
     ROLE_HELPER,
     ROLE_SITE_LEAD,
@@ -18,6 +18,7 @@ from app.models import (
     UserRow,
     WorkRow,
     WorkScheduleRow,
+    ClientRideRow,
 )
 from app.whatsapp import notify_late_arrival
 
@@ -62,6 +63,10 @@ def _remind(db: Session, now: datetime) -> int:
         (row.work_id, row.user_id)
         for row in db.query(TimeClockRow).filter(TimeClockRow.arrive_date == today_iso)
     }
+    ride_rows = [
+        (row.work_id, row.worker_ids or "", row.ride_dates or "", row.arrival_time or "", row.latitude, row.longitude)
+        for row in db.query(ClientRideRow).filter(ClientRideRow.deleted_at.is_(None)).all()
+    ]
     sent = 0
     schedules = db.query(WorkScheduleRow).filter(WorkScheduleRow.deleted_at.is_(None)).all()
     for schedule in schedules:
@@ -76,7 +81,9 @@ def _remind(db: Session, now: datetime) -> int:
             continue
         if (work.id, person.id) in arrived:
             continue
-        slot = late_slot(work.shift_start, grace, now_minutes)
+        ride = client_ride_for(ride_rows, work.id, person.id, today_iso)
+        start = ride[0] if ride is not None else work.shift_start
+        slot = late_slot(start, grace, now_minutes)
         if slot is None or len((person.phone or "").strip()) < 8:
             continue
         already = db.query(LateNoticeRow).filter(

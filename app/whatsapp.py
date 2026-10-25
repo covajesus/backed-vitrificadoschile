@@ -219,6 +219,7 @@ UPDATED_CONTRACT_TEMPLATE = "updated_scope_of_work"
 ASSIGNMENT_TEMPLATE = "scope_of_worker"
 UPDATED_SCOPE_TEMPLATE = "scope_of_work_updated"
 SCOPE_REQUEST_TEMPLATE = "worker_work_scope_updated"
+MARKED_TEMPLATE = "successfully_marked"
 LATE_TEMPLATE = "late_alert"
 
 
@@ -453,6 +454,22 @@ def notify_scope_request(*, phone: str, maestro_name: str, work_name: str) -> di
     ]
     try:
         return send_template(phone, SCOPE_REQUEST_TEMPLATE, parameters, language="es")
+    except Exception as error:
+        return {"ok": False, "error": str(error)}
+
+
+def notify_successful_mark(*, phone: str, worker_name: str, work_name: str, arrival_time: str) -> dict:
+    if len(phone_digits(phone)) < 8:
+        return {"ok": False, "error": "Sin celular."}
+    if not configured():
+        return {"ok": False, "error": "WhatsApp no está configurado."}
+    parameters = [
+        worker_name.strip() or "Trabajador",
+        work_name.strip() or "Obra",
+        arrival_time.strip()[:5] or "-",
+    ]
+    try:
+        return send_template(phone, MARKED_TEMPLATE, parameters, language="es")
     except Exception as error:
         return {"ok": False, "error": str(error)}
 

@@ -74,6 +74,27 @@ def scheduled_on(work_days: str, start_date: str, day_count: int, excluded: set[
     return False
 
 
+def client_ride_for(
+    rides: list[tuple[int, str, str, str, float, float]],
+    work_id: int,
+    user_id: int,
+    day: str,
+) -> tuple[str, float, float] | None:
+    wanted = str(user_id)
+    for ride_work, workers, dates, arrival, latitude, longitude in rides:
+        if ride_work != work_id:
+            continue
+        if day not in {item.strip() for item in dates.split(",") if item.strip()}:
+            continue
+        if wanted not in {item.strip() for item in workers.split(",") if item.strip()}:
+            continue
+        cleaned = (arrival or "").strip()[:5]
+        if minutes_of(cleaned) is None:
+            continue
+        return cleaned, latitude, longitude
+    return None
+
+
 def late_slot(shift_start: str, grace_minutes: int, now_minutes: int) -> int | None:
     start = minutes_of(shift_start)
     if start is None:
@@ -104,7 +125,6 @@ def work_error(
     schedule_dates: str = "",
     finish_sample: str = "",
     tint_sample: str = "",
-    arrival_time: str = "",
 ) -> str | None:
     if len(name.strip()) < 3:
         return "El nombre debe tener al menos 3 caracteres."
@@ -140,8 +160,6 @@ def work_error(
         return "Indica los días de la obra."
     if len(finish_sample.strip()) > 160 or len(tint_sample.strip()) > 160:
         return "El tipo de muestra es demasiado largo."
-    if arrival_time.strip() and minutes_of(arrival_time.strip()[:5]) is None:
-        return "Indica una hora de llegada válida."
     return None
 
 

@@ -363,5 +363,21 @@ class PalmetaChangeRow(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
 
+class ClientRideRow(Base):
+    __tablename__ = "client_rides"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    work_id: Mapped[int] = mapped_column(ForeignKey("works.id"))
+    address: Mapped[str] = mapped_column(String(300), default="")
+    latitude: Mapped[float] = mapped_column(Float, default=0)
+    longitude: Mapped[float] = mapped_column(Float, default=0)
+    arrival_time: Mapped[str] = mapped_column(String(5), default="")
+    ride_dates: Mapped[str] = mapped_column(String(2000), default="")
+    worker_ids: Mapped[str] = mapped_column(String(1000), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
 AccountRow = UserRow
 ArrivalRow = TimeClockRow

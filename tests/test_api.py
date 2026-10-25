@@ -170,6 +170,56 @@ def test_arrival_rejects_a_mark_away_from_the_site() -> None:
     assert "wa.me" in on_site.json()["whatsappHref"]
 
 
+def test_a_client_ride_moves_the_late_clock_and_confirms_the_mark(monkeypatch) -> None:
+    sent: list[dict] = []
+
+    def fake_template(phone, name, parameters, button_payloads=None, *, document=None, line_parameters=None, image=None, language="es"):
+        sent.append({"phone": phone, "name": name, "parameters": parameters, "language": language})
+        return {"ok": True, "template": name}
+
+    monkeypatch.setattr("app.whatsapp.send_template", fake_template)
+    api = client()
+    monkeypatch.setenv("META_TOKEN", "test-token")
+    headers = admin_headers(api)
+    created = api.post("/api/client-rides", headers=headers, json={
+        "workId": "1",
+        "address": "Av. Apoquindo 4500, Las Condes",
+        "arrivalTime": "09:30",
+        "dates": "2026-10-05",
+        "workerIds": ["2", "3"],
+        "latitude": -33.5,
+        "longitude": -70.6,
+    })
+    assert created.status_code == 200
+    assert created.json()["workerIds"] == ["2", "3"]
+    assert created.json()["arrivalTime"] == "09:30"
+    lead = lead_headers(api)
+    away = api.post("/api/arrivals", headers=lead, json={
+        "workId": "1",
+        "workerId": "2",
+        "at": "2026-10-05T09:40:00",
+        "latitude": -33.4,
+        "longitude": -70.5,
+        "photoDataUrl": PHOTO,
+    })
+    assert away.status_code == 400
+    marked = api.post("/api/arrivals", headers=lead, json={
+        "workId": "1",
+        "workerId": "2",
+        "at": "2026-10-05T09:40:00",
+        "latitude": -33.5,
+        "longitude": -70.6,
+        "photoDataUrl": PHOTO,
+    })
+    assert marked.status_code == 200
+    assert sent == [{
+        "phone": "912345678",
+        "name": "successfully_marked",
+        "parameters": ["Maestro de obra", "Inmobiliaria Dominicos", "09:40"],
+        "language": "es",
+    }]
+
+
 def test_admin_marks_any_day_without_gps() -> None:
     api = client()
     headers = admin_headers(api)
@@ -377,7 +427,6 @@ def test_work_keeps_the_chosen_working_days() -> None:
         "address": "Calle Falsa 123",
         "shiftStart": "10:00",
         "shiftEnd": "00:00",
-        "arrivalTime": "07:30",
         "plannedHours": 8,
         "workDays": "weekdays",
         "palmetaCount": 10,
@@ -390,7 +439,6 @@ def test_work_keeps_the_chosen_working_days() -> None:
     assert midnight.status_code == 200
     assert midnight.json()["shiftStart"] == "10:00"
     assert midnight.json()["shiftEnd"] == "00:00"
-    assert midnight.json()["arrivalTime"] == "07:30"
     rejected = api.post("/api/works", headers=headers, json={
         "name": "Faena sabatina",
         "address": "Calle Falsa 123",

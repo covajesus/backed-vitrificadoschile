@@ -99,7 +99,6 @@ class WorkBody(BaseModel):
     address: str
     shiftStart: str
     shiftEnd: str
-    arrivalTime: str = ""
     plannedHours: float
     workDays: str = "weekdays"
     palmetaCount: int = 0
@@ -225,6 +224,27 @@ class ArrivalOut(BaseModel):
     longitude: float
     photoDataUrl: str
     whatsappHref: str
+
+
+class ClientRideBody(BaseModel):
+    workId: str
+    address: str
+    arrivalTime: str
+    dates: str = ""
+    workerIds: list[str] = []
+    latitude: float | None = None
+    longitude: float | None = None
+
+
+class ClientRideOut(BaseModel):
+    id: str
+    workId: str
+    address: str
+    arrivalTime: str
+    dates: str
+    workerIds: list[str]
+    latitude: float
+    longitude: float
 
 
 class AccountBody(BaseModel):
