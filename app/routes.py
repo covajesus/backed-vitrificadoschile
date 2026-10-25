@@ -80,6 +80,8 @@ from app.schemas import (
     CrewBody,
     DeductionBody,
     DeductionOut,
+    RoleBody,
+    RoleOut,
     CrewMemberBody,
     ItemPriceOut,
     LoginBody,
@@ -1853,6 +1855,72 @@ def task_fields(body: TaskBody) -> tuple[str, str, int, int]:
     if body.amount < 0:
         fail(400, "El valor no puede ser negativo.")
     return name, "general", body.amount, 0
+
+
+SYSTEM_ROLE_IDS = {ROLE_ADMIN, ROLE_SITE_LEAD, ROLE_HELPER}
+
+
+def role_name(value: str) -> str:
+    name = value.strip()
+    if len(name) < 3:
+        fail(400, "El nombre del rol debe tener al menos 3 caracteres.")
+    return name
+
+
+def role_out(row: RoleRow) -> RoleOut:
+    return RoleOut(id=str(row.id), name=row.rol)
+
+
+def role_name_taken(db: Session, name: str, ignore_id: int | None = None) -> bool:
+    folded = name.casefold()
+    rows = db.query(RoleRow).filter(RoleRow.deleted_at.is_(None)).all()
+    return any(row.rol.casefold() == folded and row.id != ignore_id for row in rows)
+
+
+@router.get("/roles", response_model=list[RoleOut])
+def list_roles(_: AccountRow = Depends(require_admin), db: Session = Depends(get_db)) -> list[RoleOut]:
+    rows = db.query(RoleRow).filter(RoleRow.deleted_at.is_(None)).order_by(RoleRow.id).all()
+    return [role_out(row) for row in rows]
+
+
+@router.post("/roles", response_model=RoleOut)
+def create_role(body: RoleBody, _: AccountRow = Depends(require_admin), db: Session = Depends(get_db)) -> RoleOut:
+    name = role_name(body.name)
+    if role_name_taken(db, name):
+        fail(400, "Ya existe un rol con ese nombre.")
+    row = RoleRow(rol=name)
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return role_out(row)
+
+
+@router.put("/roles/{role_id}", response_model=RoleOut)
+def update_role(role_id: str, body: RoleBody, _: AccountRow = Depends(require_admin), db: Session = Depends(get_db)) -> RoleOut:
+    row = db.get(RoleRow, num(role_id))
+    if row is None or row.deleted_at is not None:
+        fail(404, "Rol no encontrado.")
+    name = role_name(body.name)
+    if role_name_taken(db, name, row.id):
+        fail(400, "Ya existe un rol con ese nombre.")
+    row.rol = name
+    db.commit()
+    db.refresh(row)
+    return role_out(row)
+
+
+@router.delete("/roles/{role_id}", status_code=204)
+def delete_role(role_id: str, _: AccountRow = Depends(require_admin), db: Session = Depends(get_db)) -> None:
+    row = db.get(RoleRow, num(role_id))
+    if row is None or row.deleted_at is not None:
+        fail(404, "Rol no encontrado.")
+    if row.id in SYSTEM_ROLE_IDS:
+        fail(400, "Este rol forma parte del sistema.")
+    used = db.query(AccountRow).filter(AccountRow.rol_id == row.id, AccountRow.deleted_at.is_(None)).first()
+    if used is not None:
+        fail(400, "Hay personas con este rol.")
+    row.deleted_at = utcnow()
+    db.commit()
 
 
 @router.get("/tasks", response_model=list[TaskOut])

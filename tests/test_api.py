@@ -347,6 +347,34 @@ def test_roles_statuses_and_schedules_are_numeric() -> None:
     assert schedule.user_id == 2
 
 
+def test_roles_can_be_created_renamed_and_removed() -> None:
+    api = client()
+    headers = admin_headers(api)
+    listed = api.get("/api/roles", headers=headers)
+    assert listed.status_code == 200
+    assert [(item["id"], item["name"]) for item in listed.json()] == [
+        ("1", "Administrador"),
+        ("2", "Maestro de Obra"),
+        ("3", "Ayudante"),
+    ]
+    created = api.post("/api/roles", headers=headers, json={"name": "Supervisor"})
+    assert created.status_code == 200
+    role_id = created.json()["id"]
+    renamed = api.put(f"/api/roles/{role_id}", headers=headers, json={"name": "Capataz"})
+    assert renamed.status_code == 200
+    assert renamed.json()["name"] == "Capataz"
+    blocked = api.delete("/api/roles/1", headers=headers)
+    assert blocked.status_code == 400
+    assert blocked.json()["detail"] == "Este rol forma parte del sistema."
+    removed = api.delete(f"/api/roles/{role_id}", headers=headers)
+    assert removed.status_code == 204
+    names = [item["name"] for item in api.get("/api/roles", headers=headers).json()]
+    assert "Capataz" not in names
+    lead = api.post("/api/auth/login", json={"email": "lead.worker@vitrificados.local", "password": "demo-site"})
+    denied = api.get("/api/roles", headers={"Authorization": f"Bearer {lead.json()['token']}"})
+    assert denied.status_code == 403
+
+
 def test_site_lead_uses_charge_item_prices_and_helper_requires_hourly_rate() -> None:
     api = client()
     headers = admin_headers(api)

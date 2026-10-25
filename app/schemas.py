@@ -89,6 +89,15 @@ class LoginBody(BaseModel):
     password: str
 
 
+class RoleOut(BaseModel):
+    id: str
+    name: str
+
+
+class RoleBody(BaseModel):
+    name: str
+
+
 class LoginResult(BaseModel):
     token: str
     account: AccountOut
