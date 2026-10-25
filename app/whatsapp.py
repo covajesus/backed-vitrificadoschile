@@ -123,6 +123,34 @@ def format_assignment_partidas(lines: list[tuple]) -> str:
     return ", ".join(rows) or "Sin partidas"
 
 
+def format_partida_changes(lines: list[tuple]) -> str:
+    rows = []
+    for line in lines:
+        name, previous, quantity = line[0], line[1], line[2]
+        unit = line[3] if len(line) > 3 else ""
+        marked = bool(line[4]) if len(line) > 4 else False
+        was_marked = bool(line[5]) if len(line) > 5 else False
+        if previous == quantity and marked == was_marked:
+            continue
+        if previous == 0 and quantity == 0 and not marked and not was_marked:
+            continue
+        if quantity == 0 and not marked and (previous > 0 or was_marked):
+            rows.append(f"Se quita {name}")
+            continue
+        if previous == 0 and not was_marked:
+            text = f"Se agrega {name}, cantidad {quantity_with_unit(quantity, unit)}"
+        elif previous != quantity:
+            text = f"{name} pasa de {quantity_with_unit(previous, unit)} a {quantity_with_unit(quantity, unit)}"
+        else:
+            text = f"{name} {quantity_with_unit(quantity, unit)}"
+        if marked:
+            text = f"{text} (Evaluar: Si)"
+        elif was_marked:
+            text = f"{text} (Evaluar: No)"
+        rows.append(text)
+    return ", ".join(rows) or "Sin cambios de partidas"
+
+
 def map_link(latitude: float, longitude: float) -> str:
     if not math.isfinite(latitude) or not math.isfinite(longitude):
         return "-"
@@ -189,6 +217,8 @@ def send_text(phone: str, text: str) -> dict:
 CONTRACT_TEMPLATE = "scope_of_work"
 UPDATED_CONTRACT_TEMPLATE = "updated_scope_of_work"
 ASSIGNMENT_TEMPLATE = "scope_of_worker"
+UPDATED_SCOPE_TEMPLATE = "scope_of_work_updated"
+SCOPE_REQUEST_TEMPLATE = "worker_work_scope_updated"
 LATE_TEMPLATE = "late_alert"
 
 
@@ -360,9 +390,11 @@ def notify_worker_assignment(
     shift_end: str = "",
     work_days: str = "",
     schedule_dates: str = "",
-) -> None:
-    if len(phone_digits(phone)) < 8 or not configured():
-        return
+) -> dict:
+    if len(phone_digits(phone)) < 8:
+        return {"ok": False, "error": "Sin celular."}
+    if not configured():
+        return {"ok": False, "error": "WhatsApp no está configurado."}
     parameters = [
         worker_name.strip() or "Trabajador",
         work_name.strip() or "Obra",
@@ -378,9 +410,51 @@ def notify_worker_assignment(
         logo = brand_logo()
         sent = send_template(phone, ASSIGNMENT_TEMPLATE, parameters, image=logo, language="es")
         if logo is not None and not sent.get("ok"):
-            send_template(phone, ASSIGNMENT_TEMPLATE, parameters, language="es")
-    except Exception:
-        return
+            sent = send_template(phone, ASSIGNMENT_TEMPLATE, parameters, language="es")
+        return sent
+    except Exception as error:
+        return {"ok": False, "error": str(error)}
+
+
+def notify_updated_scope(
+    *,
+    phone: str,
+    worker_name: str,
+    work_name: str,
+    changes: str,
+) -> dict:
+    if len(phone_digits(phone)) < 8:
+        return {"ok": False, "error": "Sin celular."}
+    if not configured():
+        return {"ok": False, "error": "WhatsApp no está configurado."}
+    parameters = [
+        worker_name.strip() or "Trabajador",
+        work_name.strip() or "Obra",
+        changes.strip() or "Sin cambios de partidas",
+    ]
+    try:
+        logo = brand_logo()
+        sent = send_template(phone, UPDATED_SCOPE_TEMPLATE, parameters, image=logo, language="es")
+        if logo is not None and not sent.get("ok"):
+            sent = send_template(phone, UPDATED_SCOPE_TEMPLATE, parameters, language="es")
+        return sent
+    except Exception as error:
+        return {"ok": False, "error": str(error)}
+
+
+def notify_scope_request(*, phone: str, maestro_name: str, work_name: str) -> dict:
+    if len(phone_digits(phone)) < 8:
+        return {"ok": False, "error": "Sin celular."}
+    if not configured():
+        return {"ok": False, "error": "WhatsApp no está configurado."}
+    parameters = [
+        maestro_name.strip() or "Maestro",
+        work_name.strip() or "Obra",
+    ]
+    try:
+        return send_template(phone, SCOPE_REQUEST_TEMPLATE, parameters, language="es")
+    except Exception as error:
+        return {"ok": False, "error": str(error)}
 
 
 def notify_work_contract(
@@ -396,6 +470,7 @@ def notify_work_contract(
     saved: str | None = None,
     emails: list[str] | None = None,
     phones: list[str] | None = None,
+    notify_admins: bool = True,
 ) -> str:
     saved = saved or ("Partidas actualizadas" if updated else "Obra guardada")
     if len(phone_digits(client_phone)) < 8:
@@ -418,7 +493,7 @@ def notify_work_contract(
         if phone not in notified and len(phone_digits(phone)) >= 8:
             notified.append(phone)
     for phone in notified:
-        if len(phone_digits(phone)) < 8:
+        if not notify_admins or len(phone_digits(phone)) < 8:
             continue
         try:
             send_template(phone, "alerta_nueva_orden", [clean_whatsapp_text(client_name)])

@@ -24,7 +24,7 @@ from app.domain import (
     work_error,
 )
 from app.notice_pdf import contract_pdf, money, palmeta_change_pdf, period_label, settlement_pdf
-from app.whatsapp import clean_phone, format_assignment_partidas, notify_palmeta_change, notify_work_contract, notify_worker_assignment
+from app.whatsapp import clean_phone, format_assignment_partidas, format_partida_changes, notify_palmeta_change, notify_scope_request, notify_updated_scope, notify_work_contract, notify_worker_assignment
 from app.geocoding import AddressNotFound, locate_address, shorten_address, suggest_addresses
 from app.models import (
     CODE_STATUS,
@@ -193,22 +193,6 @@ def incoming_charges(db: Session, charges: list[WorkChargeOut]) -> dict[int, tup
     return incoming
 
 
-def assigned_lead_phones(db: Session, work_id: int) -> list[str]:
-    phones: list[str] = []
-    rows = db.query(WorkScheduleRow).filter(WorkScheduleRow.work_id == work_id, WorkScheduleRow.deleted_at.is_(None)).all()
-    for row in rows:
-        person = db.get(UserRow, row.user_id)
-        if person is None or person.deleted_at is not None or not person.active:
-            continue
-        role_id = row.role_id if row.role_id in (ROLE_SITE_LEAD, ROLE_HELPER) else person.rol_id
-        if role_id != ROLE_SITE_LEAD:
-            continue
-        phone = (person.phone or "").strip()
-        if len(phone_digits(phone)) >= 8 and phone not in phones:
-            phones.append(phone)
-    return phones
-
-
 def contract_lines(
     db: Session,
     current: dict[int, float],
@@ -262,6 +246,7 @@ def deliver_work_contract(
     previous: dict[int, float] | None = None,
     quantities: dict[int, float] | None = None,
     saved: str | None = None,
+    notify_admins: bool = True,
 ) -> str:
     label = saved or ("Partidas actualizadas" if updated else "Obra guardada")
     try:
@@ -295,53 +280,92 @@ def deliver_work_contract(
             saved=label,
             emails=emails,
             phones=phones,
+            notify_admins=notify_admins,
         )
     except Exception as exc:
         return f"{label}. No se pudo enviar el contrato: {exc}"
 
 
-def deliver_partida_update_to_leads(db: Session, work: WorkRow) -> str:
+def charge_labels(db: Session, item_ids: set[int]) -> dict[int, tuple[str, str, bool]]:
+    if not item_ids:
+        return {}
+    items = {row.id: row for row in db.query(ChargeItemRow).filter(ChargeItemRow.id.in_(item_ids)).all()}
+    parent_ids = {item.parent_id for item in items.values() if item.parent_id}
+    parents = {
+        row.id: row.name
+        for row in db.query(ChargeItemRow).filter(ChargeItemRow.id.in_(parent_ids)).all()
+    } if parent_ids else {}
+    parents_with_lines = {item.parent_id for item in items.values() if item.parent_id}
+    labels: dict[int, tuple[str, str, bool]] = {}
+    for item_id, item in items.items():
+        parent = parents.get(item.parent_id) if item.parent_id else None
+        label = f"{parent} - {item.name}" if parent else item.name
+        unit = ""
+        if item.unit_id is not None:
+            measure = db.get(MeasureUnitRow, item.unit_id)
+            unit = measure.name if measure is not None and measure.deleted_at is None else ""
+        hidden_parent = item.kind == "composed" and item.id in parents_with_lines
+        labels[item_id] = (label, unit, hidden_parent)
+    return labels
+
+
+def assignment_change_text(db: Session, work_id: int, previous: dict[int, tuple[float, bool]]) -> str:
+    current = stored_charges(db, work_id)
+    keys = set(previous) | set(current)
+    labels = charge_labels(db, keys)
+    changed_children = {
+        item.parent_id
+        for item in db.query(ChargeItemRow).filter(ChargeItemRow.id.in_(keys)).all()
+        if item.parent_id and previous.get(item.id, (0, False)) != current.get(item.id, (0, False))
+    }
+    lines = []
+    for item_id in keys:
+        label, unit, hidden_parent = labels.get(item_id, ("", "", False))
+        if not label or (hidden_parent and item_id in changed_children):
+            continue
+        before_quantity, before_marked = previous.get(item_id, (0.0, False))
+        after_quantity, after_marked = current.get(item_id, (0.0, False))
+        lines.append((label, before_quantity, after_quantity, unit, after_marked, before_marked))
+    lines.sort(key=lambda line: line[0].casefold())
+    return format_partida_changes(lines)
+
+
+def deliver_partida_update_to_leads(db: Session, work: WorkRow, previous: dict[int, tuple[float, bool]]) -> str:
     label = "Obra actualizada"
-    phones = assigned_lead_phones(db, work.id)
-    if not phones:
+    people = []
+    rows = db.query(WorkScheduleRow).filter(WorkScheduleRow.work_id == work.id, WorkScheduleRow.deleted_at.is_(None)).all()
+    for schedule in rows:
+        person = db.get(UserRow, schedule.user_id)
+        if person is None or person.deleted_at is not None or not person.active:
+            continue
+        role_id = schedule.role_id if schedule.role_id in (ROLE_SITE_LEAD, ROLE_HELPER) else person.rol_id
+        if role_id != ROLE_SITE_LEAD:
+            continue
+        if len(phone_digits(person.phone or "")) < 8:
+            continue
+        people.append(person)
+    if not people:
         return f"{label}. No se envió el WhatsApp porque la obra no tiene un maestro con celular."
-    try:
-        lines = client_contract_lines(contract_lines(db, charge_quantities(db, work.id), None, charge_flags(db, work.id)))
-        address = shorten_address(work.address) or work.address
-        pdf = contract_pdf(
-            updated=True,
-            client_name=work.client_name,
-            client_phone=work.client_phone,
-            address=address,
-            shift_start=work.shift_start,
-            shift_end=work.shift_end,
-            work_days=work.work_days,
-            starts_on=work.starts_on or "",
-            lines=lines,
+    partidas = assignment_change_text(db, work.id, previous)
+    work_name = (work.client_name or "").strip() or work.name
+    sent_any = False
+    last_error = ""
+    for person in people:
+        result = notify_updated_scope(
+            phone=person.phone,
+            worker_name=person.name,
+            work_name=work_name,
+            changes=partidas,
         )
-        sent_any = False
-        last = ""
-        for phone in phones:
-            last = notify_work_contract(
-                work_id=work.id,
-                client_phone=phone,
-                company_phone="",
-                client_name=work.client_name,
-                address=address,
-                lines=lines,
-                pdf=pdf,
-                updated=True,
-                saved=label,
-                emails=[],
-                phones=[],
-            )
-            if "Se envió el contrato por WhatsApp" in last:
-                sent_any = True
-        if sent_any:
-            return f"{label}. Se envió el WhatsApp al maestro."
-        return last.replace("al cliente", "al maestro")
-    except Exception as exc:
-        return f"{label}. No se pudo enviar el WhatsApp al maestro: {exc}"
+        if result.get("ok"):
+            sent_any = True
+        else:
+            last_error = str(result.get("error") or "")
+    if sent_any:
+        return f"{label}. Se envió el WhatsApp al maestro."
+    if "no está configurado" in last_error.casefold():
+        return f"{label}. No se envió el WhatsApp porque WhatsApp no está configurado."
+    return f"{label}. No se pudo enviar el WhatsApp al maestro."
 
 
 def save_work_charges(db: Session, work: WorkRow, charges: list[WorkChargeOut]) -> None:
@@ -572,7 +596,8 @@ def update_work(
     message = work_fields_error(body)
     if message:
         fail(400, message)
-    partidas_changed = stored_charges(db, row.id) != incoming_charges(db, body.charges)
+    previous_partidas = stored_charges(db, row.id)
+    partidas_changed = previous_partidas != incoming_charges(db, body.charges)
     latitude, longitude = chosen_place(body)
     row.name = body.name.strip()
     row.address = body.address.strip()
@@ -604,7 +629,7 @@ def update_work(
     elif not partidas_changed:
         result.notice = "Obra actualizada. No se envió el WhatsApp porque las partidas no cambiaron."
     else:
-        result.notice = deliver_partida_update_to_leads(db, row)
+        result.notice = deliver_partida_update_to_leads(db, row, previous_partidas)
     return result
 
 
@@ -756,7 +781,11 @@ def update_work_charges(
         previous=previous,
         quantities=merged,
         saved="Cambios enviados",
+        notify_admins=False,
     )
+    _emails, admin_phones = admin_notice_contacts(db)
+    for phone in admin_phones:
+        notify_scope_request(phone=phone, maestro_name=account.name, work_name=label)
     return result
 
 

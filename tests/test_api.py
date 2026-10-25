@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 from app.main import create_app
 from app.models import RoleRow, StatusRow, WorkRow, WorkScheduleRow
 from app.notice_pdf import contract_pdf
-from app.whatsapp import format_assignment_partidas, format_contract_lines
+from app.whatsapp import format_assignment_partidas, format_contract_lines, format_partida_changes
 
 PHOTO = "data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22/%3E"
 
@@ -685,6 +685,10 @@ def test_contract_lines_use_one_line_each() -> None:
         ("Pulido y Vitrificado - Residencial", 156, "m²", False),
         ("Tinte", 0, "", True),
     ]) == "Pulido y Vitrificado - Residencial 156 (m²), Tinte 0 (Evaluar: Si)"
+    assert format_partida_changes([
+        ("Retape", 12, 20, "", False, False),
+        ("Tinte", 0, 0, "", True, False),
+    ]) == "Retape pasa de 12 a 20, Se agrega Tinte, cantidad 0 (Evaluar: Si)"
 
 
 def test_a_composed_partida_is_sent_once(monkeypatch) -> None:
@@ -839,11 +843,38 @@ def test_work_contract_is_sent_to_the_client(monkeypatch) -> None:
     assert len(sent) == 3
 
 
+def test_a_maestro_charge_request_uses_the_admin_template(monkeypatch) -> None:
+    sent: list[dict] = []
+
+    def fake_template(phone, name, parameters, button_payloads=None, *, document=None, line_parameters=None, image=None, language="es"):
+        sent.append({"phone": phone, "name": name, "parameters": parameters, "language": language})
+        return {"ok": True, "template": name}
+
+    monkeypatch.setattr("app.whatsapp.send_template", fake_template)
+    monkeypatch.setattr("app.mail.send_contract_email", lambda *_args, **_kwargs: "")
+    api = client()
+    monkeypatch.setenv("META_TOKEN", "test-token")
+    headers = admin_headers(api)
+    saved = api.put("/api/accounts/1", headers=headers, json={
+        "name": "Administración",
+        "email": "admin@vitrificados.local",
+        "roleId": 1,
+        "phone": "56911112222",
+    })
+    assert saved.status_code == 200
+    login = api.post("/api/auth/login", json={"email": "lead.worker@vitrificados.local", "password": "demo-site"})
+    lead = {"Authorization": f"Bearer {login.json()['token']}"}
+    updated = api.put("/api/works/1/charges", headers=lead, json={"charges": [{"itemId": "1", "quantity": 4}]})
+    assert updated.status_code == 200
+    assert {"phone": "56911112222", "name": "worker_work_scope_updated", "parameters": ["Maestro de obra", "Inmobiliaria Dominicos"], "language": "es"} in sent
+    assert "alerta_nueva_orden" not in {item["name"] for item in sent}
+
+
 def test_admin_partida_edit_reaches_only_the_site_lead(monkeypatch) -> None:
     sent: list[dict] = []
 
     def fake_template(phone, name, parameters, button_payloads=None, *, document=None, line_parameters=None, image=None, language="es"):
-        sent.append({"phone": phone, "name": name})
+        sent.append({"phone": phone, "name": name, "parameters": parameters, "language": language, "image": image})
         return {"ok": True, "template": name}
 
     monkeypatch.setattr("app.whatsapp.send_template", fake_template)
@@ -880,7 +911,20 @@ def test_admin_partida_edit_reaches_only_the_site_lead(monkeypatch) -> None:
     })
     assert changed.status_code == 200
     assert changed.json()["notice"] == "Obra actualizada. Se envió el WhatsApp al maestro."
-    assert sent == [{"phone": "912345678", "name": "updated_scope_of_work"}]
+    assert sent == [{
+        "phone": "912345678",
+        "name": "scope_of_work_updated",
+        "parameters": [
+            "Maestro de obra",
+            "Inmobiliaria Dominicos",
+            "Retape pasa de 12 a 20",
+        ],
+        "language": "es",
+        "image": sent[0]["image"],
+    }]
+    filename, content = sent[0]["image"]
+    assert filename == "logo.jpg"
+    assert content.startswith(b"\xff\xd8")
     quiet = api.put("/api/works/1", headers=headers, json={
         **body,
         "notifyWhatsapp": False,
