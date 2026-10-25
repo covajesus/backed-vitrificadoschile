@@ -66,6 +66,7 @@ class AccountOut(BaseModel):
     roleId: int
     workerId: str | None
     hourlyRate: float = 0
+    salary: float = 0
     palmetaCost: float = 0
     phone: str = ""
     address: str = ""
@@ -89,13 +90,26 @@ class LoginBody(BaseModel):
     password: str
 
 
+class ContractTypeOut(BaseModel):
+    id: str
+    name: str
+    asksSalary: bool = False
+    asksHourlyRate: bool = False
+    asksItemPrices: bool = False
+    rateLabel: str = ""
+
+
 class RoleOut(BaseModel):
     id: str
     name: str
+    contractTypeId: str = ""
+    contractTypeName: str = ""
+    protected: bool = False
 
 
 class RoleBody(BaseModel):
     name: str
+    contractTypeId: str = ""
 
 
 class LoginResult(BaseModel):
@@ -265,6 +279,7 @@ class AccountBody(BaseModel):
     roleId: int
     workerId: str | None = None
     hourlyRate: float = 0
+    salary: float = 0
     palmetaCost: float = 0
     phone: str = ""
     address: str = ""

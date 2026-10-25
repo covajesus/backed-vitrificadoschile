@@ -35,11 +35,27 @@ STATUS_CODE = {
 CODE_STATUS = {code: status_id for status_id, code in STATUS_CODE.items()}
 
 
+class ContractTypeRow(Base):
+    __tablename__ = "contract_types"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(80))
+    asks_salary: Mapped[int] = mapped_column(Integer, default=0)
+    asks_hourly_rate: Mapped[int] = mapped_column(Integer, default=0)
+    asks_item_prices: Mapped[int] = mapped_column(Integer, default=0)
+    rate_label: Mapped[str] = mapped_column(String(80), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
 class RoleRow(Base):
     __tablename__ = "roles"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     rol: Mapped[str] = mapped_column(String(80))
+    contract_type_id: Mapped[int | None] = mapped_column(ForeignKey("contract_types.id"), nullable=True)
+    protected: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
@@ -128,6 +144,7 @@ class UserRow(Base):
     bank_id: Mapped[int | None] = mapped_column(ForeignKey("banks.id"), nullable=True)
     account_type_id: Mapped[int | None] = mapped_column(ForeignKey("bank_account_types.id"), nullable=True)
     hourly_rate: Mapped[float] = mapped_column(Float, default=0)
+    salary: Mapped[float] = mapped_column(Float, default=0)
     palmeta_cost: Mapped[float] = mapped_column(Float, default=0)
     phone: Mapped[str] = mapped_column(String(30), default="")
     address: Mapped[str] = mapped_column(String(300), default="")

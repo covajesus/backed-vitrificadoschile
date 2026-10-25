@@ -352,11 +352,53 @@ def test_roles_can_be_created_renamed_and_removed() -> None:
     headers = admin_headers(api)
     listed = api.get("/api/roles", headers=headers)
     assert listed.status_code == 200
+    by_id = {item["id"]: item for item in listed.json()}
     assert [(item["id"], item["name"]) for item in listed.json()] == [
         ("1", "Administrador"),
         ("2", "Maestro de Obra"),
         ("3", "Ayudante"),
     ]
+    assert by_id["1"]["contractTypeId"] == ""
+    assert by_id["1"]["protected"] is True
+    assert by_id["2"]["contractTypeId"] == "2"
+    assert by_id["2"]["contractTypeName"] == "Trabajador de obra"
+    catalog = api.get("/api/contract-types", headers=headers)
+    assert catalog.status_code == 200
+    contract_id = next(item["id"] for item in catalog.json() if item["asksSalary"])
+    day_id = next(item["id"] for item in catalog.json() if item["asksHourlyRate"] and not item["asksItemPrices"])
+    contract = api.post("/api/roles", headers=headers, json={"name": "Contador", "contractTypeId": contract_id})
+    assert contract.status_code == 200
+    assert contract.json()["contractTypeId"] == contract_id
+    assert contract.json()["contractTypeName"] == "Por contrato"
+    assert contract.json()["protected"] is False
+    person = api.post("/api/accounts", headers=headers, json={
+        "name": "Lia Paz",
+        "firstName": "Lia",
+        "lastName": "Paz",
+        "email": "lia@vitrificados.local",
+        "password": "demo-site",
+        "roleId": int(contract.json()["id"]),
+        "salary": 800000,
+        "hourlyRate": 9000,
+        **banking(api, headers),
+    })
+    assert person.status_code == 200
+    assert person.json()["salary"] == 800000
+    assert person.json()["hourlyRate"] == 0
+    assert person.json()["itemPrices"] == []
+    day = api.post("/api/roles", headers=headers, json={"name": "Jornal", "contractTypeId": day_id})
+    missing_rate = api.post("/api/accounts", headers=headers, json={
+        "name": "Nico Diaz",
+        "firstName": "Nico",
+        "lastName": "Diaz",
+        "email": "nico@vitrificados.local",
+        "password": "demo-site",
+        "roleId": int(day.json()["id"]),
+        "hourlyRate": 0,
+        **banking(api, headers),
+    })
+    assert missing_rate.status_code == 400
+    assert missing_rate.json()["detail"] == "Indica el costo por hora."
     created = api.post("/api/roles", headers=headers, json={"name": "Supervisor"})
     assert created.status_code == 200
     role_id = created.json()["id"]

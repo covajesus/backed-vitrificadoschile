@@ -42,6 +42,7 @@ def account_out(row: UserRow, item_prices: list[ItemPriceOut] | None = None) -> 
         roleId=row.rol_id,
         workerId=None,
         hourlyRate=row.hourly_rate,
+        salary=row.salary,
         palmetaCost=row.palmeta_cost,
         phone=row.phone,
         address=row.address,

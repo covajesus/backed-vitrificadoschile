@@ -11,6 +11,7 @@ from app.models import (
     MeasureUnitRow,
     BankRow,
     RoleRow,
+    ContractTypeRow,
     SettingRow,
     StatusRow,
     TaskRow,
@@ -40,9 +41,14 @@ def seed_if_empty(db: Session) -> None:
     if db.query(RoleRow).first():
         return
     db.add_all([
-        RoleRow(id=ROLE_ADMIN, rol="Administrador"),
-        RoleRow(id=ROLE_SITE_LEAD, rol="Maestro de Obra"),
-        RoleRow(id=ROLE_HELPER, rol="Ayudante"),
+        ContractTypeRow(id=type_id, name=name, asks_salary=salary, asks_hourly_rate=hourly, asks_item_prices=items, rate_label=label)
+        for type_id, name, salary, hourly, items, label in CONTRACT_TYPES
+    ])
+    db.flush()
+    db.add_all([
+        RoleRow(id=ROLE_ADMIN, rol="Administrador", protected=1),
+        RoleRow(id=ROLE_SITE_LEAD, rol="Maestro de Obra", contract_type_id=2, protected=1),
+        RoleRow(id=ROLE_HELPER, rol="Ayudante", contract_type_id=2, protected=1),
         StatusRow(id=STATUS_ACTIVE, name="En espera"),
         StatusRow(id=STATUS_WORKING, name="Trabajando"),
         StatusRow(id=3, name="Entregada"),
@@ -205,12 +211,43 @@ def ensure_roles(db: Session) -> None:
     if lead is None:
         return
     if db.get(RoleRow, ROLE_HELPER) is None:
-        db.add(RoleRow(id=ROLE_HELPER, rol="Ayudante"))
+        db.add(RoleRow(id=ROLE_HELPER, rol="Ayudante", contract_type_id=2, protected=1))
     if lead.rol == "Empleado":
         lead.rol = "Maestro de Obra"
         helper = db.query(UserRow).filter(UserRow.email == "helper.worker@vitrificados.local").one_or_none()
         if helper is not None and helper.rol_id == ROLE_SITE_LEAD:
             helper.rol_id = ROLE_HELPER
+    for role_id in (ROLE_ADMIN, ROLE_SITE_LEAD, ROLE_HELPER):
+        row = db.get(RoleRow, role_id)
+        if row is not None:
+            row.protected = 1
+    if lead.contract_type_id is None:
+        lead.contract_type_id = 2
+    helper = db.get(RoleRow, ROLE_HELPER)
+    if helper is not None and helper.contract_type_id is None:
+        helper.contract_type_id = 2
+    db.commit()
+
+
+CONTRACT_TYPES = (
+    (1, "Por contrato", 1, 0, 0, ""),
+    (2, "Trabajador de obra", 0, 1, 1, "Valor por hora"),
+    (3, "Trabajador por día", 0, 1, 0, "Costo por hora"),
+)
+
+
+def ensure_contract_types(db: Session) -> None:
+    for type_id, name, salary, hourly, items, label in CONTRACT_TYPES:
+        row = db.get(ContractTypeRow, type_id)
+        if row is None:
+            db.add(ContractTypeRow(
+                id=type_id,
+                name=name,
+                asks_salary=salary,
+                asks_hourly_rate=hourly,
+                asks_item_prices=items,
+                rate_label=label,
+            ))
     db.commit()
 
 

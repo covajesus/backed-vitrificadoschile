@@ -11,7 +11,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.models import Base
 from app.routes import login_account, router
-from app.seed import ensure_bank_account_types, ensure_banks, ensure_charge_items, ensure_measure_units, ensure_roles, ensure_setting, ensure_statuses, ensure_tasks, seed_charge_items, seed_if_empty, seed_tasks
+from app.seed import ensure_bank_account_types, ensure_banks, ensure_charge_items, ensure_contract_types, ensure_measure_units, ensure_roles, ensure_setting, ensure_statuses, ensure_tasks, seed_charge_items, seed_if_empty, seed_tasks
 from app.whatsapp import load_env_file
 
 SECRET = "vitrificados-chile-dev-secret"
@@ -104,6 +104,38 @@ def ensure_measure_columns(engine) -> None:
     ensure_column(engine, "settings", "lead_late_per_minute", "lead_late_per_minute INTEGER NOT NULL DEFAULT 0")
     ensure_column(engine, "work_items", "evaluate", "evaluate INTEGER NOT NULL DEFAULT 0")
     ensure_column(engine, "works", "arrival_time", "arrival_time VARCHAR(8) NOT NULL DEFAULT ''")
+    ensure_role_pay(engine)
+
+
+def ensure_role_pay(engine) -> None:
+    inspector = inspect(engine)
+    if "roles" not in inspector.get_table_names() or "users" not in inspector.get_table_names():
+        return
+    role_columns = {item["name"] for item in inspector.get_columns("roles")}
+    amount = "DOUBLE" if engine.dialect.name == "mysql" else "FLOAT"
+    ensure_column(engine, "roles", "contract_type_id", "contract_type_id INTEGER NULL")
+    ensure_column(engine, "roles", "protected", "protected INTEGER NOT NULL DEFAULT 0")
+    ensure_column(engine, "users", "salary", f"salary {amount} NOT NULL DEFAULT 0")
+    with engine.begin() as connection:
+        if "by_contract" in role_columns:
+            connection.execute(text(
+                "UPDATE roles SET contract_type_id = 1 "
+                "WHERE contract_type_id IS NULL AND by_contract = 1 AND id <> 1"
+            ))
+        if "site_worker" in role_columns:
+            connection.execute(text(
+                "UPDATE roles SET contract_type_id = 2 "
+                "WHERE contract_type_id IS NULL AND site_worker = 1 AND id <> 1"
+            ))
+            connection.execute(text(
+                "UPDATE roles SET contract_type_id = 3 "
+                "WHERE contract_type_id IS NULL AND COALESCE(by_contract, 0) = 0 "
+                "AND COALESCE(site_worker, 0) = 0 AND id <> 1"
+            ))
+        connection.execute(text(
+            "UPDATE roles SET contract_type_id = 2 WHERE contract_type_id IS NULL AND id IN (2, 3)"
+        ))
+        connection.execute(text("UPDATE roles SET protected = 1 WHERE id IN (1, 2, 3)"))
 
 
 def ensure_hourly_rate(engine) -> None:
@@ -227,6 +259,7 @@ def create_app(database_url: str | None = None, secret: str = SECRET) -> FastAPI
         seed_charge_items(db)
         ensure_charge_items(db)
         ensure_statuses(db)
+        ensure_contract_types(db)
         ensure_roles(db)
         ensure_banks(db)
         ensure_measure_units(db)

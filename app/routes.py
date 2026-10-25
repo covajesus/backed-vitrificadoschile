@@ -43,6 +43,7 @@ from app.models import (
     BankRow,
     ChargeItemRow,
     ClientRideRow,
+    ContractTypeRow,
     DeductionRow,
     NotificationContactRow,
     MeasureUnitRow,
@@ -73,6 +74,7 @@ from app.schemas import (
     ArrivalOut,
     ClientRideBody,
     ClientRideOut,
+    ContractTypeOut,
     AssignmentOut,
     ChargeItemBody,
     ChargeItemOut,
@@ -135,7 +137,23 @@ def alert_out(row: AlertRow) -> AlertOut:
 
 
 def field_role(account: AccountRow) -> bool:
-    return account.rol_id in {ROLE_SITE_LEAD, ROLE_HELPER}
+    return account.rol_id != ROLE_ADMIN
+
+
+def contract_type(db: Session, role: RoleRow) -> ContractTypeRow | None:
+    if not role.contract_type_id:
+        return None
+    row = db.get(ContractTypeRow, role.contract_type_id)
+    if row is None or row.deleted_at is not None:
+        return None
+    return row
+
+
+def rate_required_message(kind: ContractTypeRow) -> str:
+    label = kind.rate_label.strip()
+    if not label:
+        return "Indica el valor por hora."
+    return f"Indica el {label[:1].lower()}{label[1:]}."
 
 
 def pending_counts(db: Session) -> dict[int, int]:
@@ -408,7 +426,9 @@ def priced_account(db: Session, row: AccountRow) -> AccountOut:
 
 def save_item_prices(db: Session, user: AccountRow, prices: list[ItemPriceOut]) -> None:
     db.query(UserItemPriceRow).filter(UserItemPriceRow.user_id == user.id).delete()
-    if user.rol_id not in {ROLE_SITE_LEAD, ROLE_HELPER}:
+    role = db.get(RoleRow, user.rol_id)
+    kind = contract_type(db, role) if role is not None else None
+    if kind is None or not kind.asks_item_prices:
         return
     seen: set[int] = set()
     for price in prices:
@@ -1287,14 +1307,16 @@ def list_accounts(account: AccountRow = Depends(current_account), db: Session = 
 
 @router.post("/accounts", response_model=AccountOut)
 def create_account(body: AccountBody, _: AccountRow = Depends(require_admin), db: Session = Depends(get_db)) -> AccountOut:
-    message = account_error(body, creating=True)
+    role = stored_role(db, body.roleId)
+    kind = contract_type(db, role)
+    message = account_error(body, creating=True, role=role, kind=kind)
     if message:
         fail(400, message)
     if db.query(AccountRow).filter(AccountRow.email == body.email.strip().lower()).first():
         fail(400, "Ya existe una cuenta con ese correo.")
     first, last = person_names(body)
     row = AccountRow(
-        rol_id=body.roleId,
+        rol_id=role.id,
         names=first,
         lastnames=last,
         phone=body.phone.strip(),
@@ -1306,16 +1328,15 @@ def create_account(body: AccountBody, _: AccountRow = Depends(require_admin), db
         account_holder_document_id=body.accountHolderDocumentId.strip(),
         email=body.email.strip().lower(),
         password_hash=hash_password(body.password),
-        hourly_rate=0 if body.roleId == ROLE_ADMIN else body.hourlyRate,
-        palmeta_cost=body.palmetaCost if body.roleId == ROLE_SITE_LEAD else 0,
         status_id=account_status_id(body.statusId),
     )
+    apply_account_pay(row, body, role, kind)
     bank_message = store_bank_details(db, row, body)
     if bank_message:
         fail(400, bank_message)
     db.add(row)
     db.flush()
-    save_item_prices(db, row, body.itemPrices)
+    save_item_prices(db, row, pay_item_prices(body, kind))
     db.commit()
     db.refresh(row)
     return priced_account(db, row)
@@ -1545,7 +1566,9 @@ def update_account(
     row = db.get(AccountRow, num(account_id))
     if row is None or row.deleted_at is not None:
         fail(404, "Usuario no encontrado.")
-    message = account_error(body, creating=False)
+    role = stored_role(db, body.roleId)
+    kind = contract_type(db, role)
+    message = account_error(body, creating=False, role=role, kind=kind)
     if message:
         fail(400, message)
     first, last = person_names(body)
@@ -1562,13 +1585,11 @@ def update_account(
     row.account_number = body.accountNumber.strip()
     row.account_holder = body.accountHolder.strip()
     row.account_holder_document_id = body.accountHolderDocumentId.strip()
-    row.rol_id = body.roleId
-    row.hourly_rate = 0 if body.roleId == ROLE_ADMIN else body.hourlyRate
-    row.palmeta_cost = body.palmetaCost if body.roleId == ROLE_SITE_LEAD else 0
+    apply_account_pay(row, body, role, kind)
     if body.password:
         row.password_hash = hash_password(body.password)
     row.status_id = account_status_id(body.statusId)
-    save_item_prices(db, row, body.itemPrices)
+    save_item_prices(db, row, pay_item_prices(body, kind))
     db.commit()
     db.refresh(row)
     return priced_account(db, row)
@@ -1612,26 +1633,53 @@ def person_fields_error(phone: str, photo: str) -> str | None:
     return None
 
 
-def account_error(body: AccountBody, creating: bool) -> str | None:
+def account_error(body: AccountBody, creating: bool, role: RoleRow, kind: ContractTypeRow | None) -> str | None:
     message = person_fields_error(body.phone, body.photoDataUrl)
     if message:
         return message
     first, _last = person_names(body)
     if len(first) < 2:
         return "Indica el nombre."
-    if body.roleId not in (ROLE_ADMIN, ROLE_SITE_LEAD, ROLE_HELPER):
-        return "El rol no es válido."
-    if body.roleId == ROLE_HELPER and body.hourlyRate <= 0:
-        return "Indica el valor por hora."
+    if kind is not None and kind.asks_salary and body.salary <= 0:
+        return "Indica el sueldo."
+    if kind is not None and kind.asks_hourly_rate and body.hourlyRate <= 0 and (not kind.asks_item_prices or role.id == ROLE_HELPER):
+        return rate_required_message(kind)
     if creating and len(body.password) < 4:
         return "La contraseña debe tener al menos 4 caracteres."
     if "@" not in body.email:
         return "Indica un correo válido."
-    if body.roleId == ROLE_ADMIN:
+    if role.id == ROLE_ADMIN:
         if len(phone_digits(body.phone)) < 8:
             return "Indica un teléfono válido."
         return None
     return required_account_details(body)
+
+
+def stored_role(db: Session, role_id: int) -> RoleRow:
+    role = db.get(RoleRow, role_id)
+    if role is None or role.deleted_at is not None:
+        fail(400, "El rol no es válido.")
+    return role
+
+
+def apply_account_pay(row: AccountRow, body: AccountBody, role: RoleRow, kind: ContractTypeRow | None) -> None:
+    row.rol_id = role.id
+    if kind is not None and kind.asks_salary:
+        row.salary = body.salary
+        row.hourly_rate = 0
+    elif kind is not None and kind.asks_hourly_rate:
+        row.salary = 0
+        row.hourly_rate = body.hourlyRate
+    else:
+        row.salary = 0
+        row.hourly_rate = 0
+    row.palmeta_cost = body.palmetaCost if role.id == ROLE_SITE_LEAD else 0
+
+
+def pay_item_prices(body: AccountBody, kind: ContractTypeRow | None) -> list[ItemPriceOut]:
+    if kind is not None and kind.asks_item_prices:
+        return body.itemPrices
+    return []
 
 
 def span_minutes(value: str) -> int | None:
@@ -1857,9 +1905,6 @@ def task_fields(body: TaskBody) -> tuple[str, str, int, int]:
     return name, "general", body.amount, 0
 
 
-SYSTEM_ROLE_IDS = {ROLE_ADMIN, ROLE_SITE_LEAD, ROLE_HELPER}
-
-
 def role_name(value: str) -> str:
     name = value.strip()
     if len(name) < 3:
@@ -1867,8 +1912,27 @@ def role_name(value: str) -> str:
     return name
 
 
-def role_out(row: RoleRow) -> RoleOut:
-    return RoleOut(id=str(row.id), name=row.rol)
+def role_out(db: Session, row: RoleRow) -> RoleOut:
+    kind = contract_type(db, row)
+    return RoleOut(
+        id=str(row.id),
+        name=row.rol,
+        contractTypeId="" if not row.contract_type_id else str(row.contract_type_id),
+        contractTypeName="" if kind is None else kind.name,
+        protected=bool(row.protected),
+    )
+
+
+def stored_contract_type_id(db: Session, raw: str) -> int | None:
+    value = raw.strip()
+    if not value:
+        return None
+    if not value.isdigit():
+        fail(400, "El tipo de contrato no es válido.")
+    kind = db.get(ContractTypeRow, int(value))
+    if kind is None or kind.deleted_at is not None:
+        fail(400, "El tipo de contrato no es válido.")
+    return kind.id
 
 
 def role_name_taken(db: Session, name: str, ignore_id: int | None = None) -> bool:
@@ -1880,7 +1944,23 @@ def role_name_taken(db: Session, name: str, ignore_id: int | None = None) -> boo
 @router.get("/roles", response_model=list[RoleOut])
 def list_roles(_: AccountRow = Depends(require_admin), db: Session = Depends(get_db)) -> list[RoleOut]:
     rows = db.query(RoleRow).filter(RoleRow.deleted_at.is_(None)).order_by(RoleRow.id).all()
-    return [role_out(row) for row in rows]
+    return [role_out(db, row) for row in rows]
+
+
+@router.get("/contract-types", response_model=list[ContractTypeOut])
+def list_contract_types(_: AccountRow = Depends(require_admin), db: Session = Depends(get_db)) -> list[ContractTypeOut]:
+    rows = db.query(ContractTypeRow).filter(ContractTypeRow.deleted_at.is_(None)).order_by(ContractTypeRow.id).all()
+    return [
+        ContractTypeOut(
+            id=str(row.id),
+            name=row.name,
+            asksSalary=bool(row.asks_salary),
+            asksHourlyRate=bool(row.asks_hourly_rate),
+            asksItemPrices=bool(row.asks_item_prices),
+            rateLabel=row.rate_label,
+        )
+        for row in rows
+    ]
 
 
 @router.post("/roles", response_model=RoleOut)
@@ -1888,11 +1968,11 @@ def create_role(body: RoleBody, _: AccountRow = Depends(require_admin), db: Sess
     name = role_name(body.name)
     if role_name_taken(db, name):
         fail(400, "Ya existe un rol con ese nombre.")
-    row = RoleRow(rol=name)
+    row = RoleRow(rol=name, contract_type_id=stored_contract_type_id(db, body.contractTypeId))
     db.add(row)
     db.commit()
     db.refresh(row)
-    return role_out(row)
+    return role_out(db, row)
 
 
 @router.put("/roles/{role_id}", response_model=RoleOut)
@@ -1904,9 +1984,10 @@ def update_role(role_id: str, body: RoleBody, _: AccountRow = Depends(require_ad
     if role_name_taken(db, name, row.id):
         fail(400, "Ya existe un rol con ese nombre.")
     row.rol = name
+    row.contract_type_id = stored_contract_type_id(db, body.contractTypeId)
     db.commit()
     db.refresh(row)
-    return role_out(row)
+    return role_out(db, row)
 
 
 @router.delete("/roles/{role_id}", status_code=204)
@@ -1914,7 +1995,7 @@ def delete_role(role_id: str, _: AccountRow = Depends(require_admin), db: Sessio
     row = db.get(RoleRow, num(role_id))
     if row is None or row.deleted_at is not None:
         fail(404, "Rol no encontrado.")
-    if row.id in SYSTEM_ROLE_IDS:
+    if row.protected:
         fail(400, "Este rol forma parte del sistema.")
     used = db.query(AccountRow).filter(AccountRow.rol_id == row.id, AccountRow.deleted_at.is_(None)).first()
     if used is not None:
