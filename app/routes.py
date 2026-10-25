@@ -149,6 +149,20 @@ def contract_type(db: Session, role: RoleRow) -> ContractTypeRow | None:
     return row
 
 
+def chosen_contract_type(db: Session, body: AccountBody, role: RoleRow) -> ContractTypeRow | None:
+    if role.id == ROLE_ADMIN:
+        return None
+    raw = body.contractTypeId.strip()
+    if not raw:
+        return contract_type(db, role)
+    if not raw.isdigit():
+        fail(400, "Selecciona la forma de pago.")
+    row = db.get(ContractTypeRow, int(raw))
+    if row is None or row.deleted_at is not None:
+        fail(400, "La forma de pago no es válida.")
+    return row
+
+
 def rate_required_message(kind: ContractTypeRow) -> str:
     label = kind.rate_label.strip()
     if not label:
@@ -1308,7 +1322,7 @@ def list_accounts(account: AccountRow = Depends(current_account), db: Session = 
 @router.post("/accounts", response_model=AccountOut)
 def create_account(body: AccountBody, _: AccountRow = Depends(require_admin), db: Session = Depends(get_db)) -> AccountOut:
     role = stored_role(db, body.roleId)
-    kind = contract_type(db, role)
+    kind = chosen_contract_type(db, body, role)
     message = account_error(body, creating=True, role=role, kind=kind)
     if message:
         fail(400, message)
@@ -1567,7 +1581,7 @@ def update_account(
     if row is None or row.deleted_at is not None:
         fail(404, "Usuario no encontrado.")
     role = stored_role(db, body.roleId)
-    kind = contract_type(db, role)
+    kind = chosen_contract_type(db, body, role)
     message = account_error(body, creating=False, role=role, kind=kind)
     if message:
         fail(400, message)
@@ -1664,6 +1678,7 @@ def stored_role(db: Session, role_id: int) -> RoleRow:
 
 def apply_account_pay(row: AccountRow, body: AccountBody, role: RoleRow, kind: ContractTypeRow | None) -> None:
     row.rol_id = role.id
+    row.contract_type_id = None if kind is None else kind.id
     if kind is not None and kind.asks_salary:
         row.salary = body.salary
         row.hourly_rate = 0

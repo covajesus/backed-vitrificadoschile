@@ -386,6 +386,22 @@ def test_roles_can_be_created_renamed_and_removed() -> None:
     assert person.json()["salary"] == 800000
     assert person.json()["hourlyRate"] == 0
     assert person.json()["itemPrices"] == []
+    assert person.json()["contractTypeId"] == contract_id
+    switched = api.put(f"/api/accounts/{person.json()['id']}", headers=headers, json={
+        "name": "Lia Paz",
+        "firstName": "Lia",
+        "lastName": "Paz",
+        "email": "lia@vitrificados.local",
+        "roleId": int(contract.json()["id"]),
+        "contractTypeId": day_id,
+        "hourlyRate": 4500,
+        "salary": 800000,
+        **banking(api, headers),
+    })
+    assert switched.status_code == 200
+    assert switched.json()["contractTypeId"] == day_id
+    assert switched.json()["hourlyRate"] == 4500
+    assert switched.json()["salary"] == 0
     day = api.post("/api/roles", headers=headers, json={"name": "Jornal", "contractTypeId": day_id})
     missing_rate = api.post("/api/accounts", headers=headers, json={
         "name": "Nico Diaz",

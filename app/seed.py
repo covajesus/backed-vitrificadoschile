@@ -232,7 +232,7 @@ def ensure_roles(db: Session) -> None:
 CONTRACT_TYPES = (
     (1, "Por contrato", 1, 0, 0, ""),
     (2, "Trabajador de obra", 0, 1, 1, "Valor por hora"),
-    (3, "Trabajador por día", 0, 1, 0, "Costo por hora"),
+    (3, "Por hora", 0, 1, 0, "Costo por hora"),
 )
 
 
@@ -248,6 +248,8 @@ def ensure_contract_types(db: Session) -> None:
                 asks_item_prices=items,
                 rate_label=label,
             ))
+        elif type_id == 3 and row.name == "Trabajador por día":
+            row.name = name
     db.commit()
 
 

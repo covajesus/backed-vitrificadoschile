@@ -65,6 +65,7 @@ class AccountOut(BaseModel):
     email: str
     roleId: int
     workerId: str | None
+    contractTypeId: str = ""
     hourlyRate: float = 0
     salary: float = 0
     palmetaCost: float = 0
@@ -278,6 +279,7 @@ class AccountBody(BaseModel):
     password: str = ""
     roleId: int
     workerId: str | None = None
+    contractTypeId: str = ""
     hourlyRate: float = 0
     salary: float = 0
     palmetaCost: float = 0

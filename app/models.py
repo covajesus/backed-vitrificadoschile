@@ -143,6 +143,7 @@ class UserRow(Base):
     status_id: Mapped[int | None] = mapped_column(ForeignKey("statuses.id"), nullable=True)
     bank_id: Mapped[int | None] = mapped_column(ForeignKey("banks.id"), nullable=True)
     account_type_id: Mapped[int | None] = mapped_column(ForeignKey("bank_account_types.id"), nullable=True)
+    contract_type_id: Mapped[int | None] = mapped_column(ForeignKey("contract_types.id"), nullable=True)
     hourly_rate: Mapped[float] = mapped_column(Float, default=0)
     salary: Mapped[float] = mapped_column(Float, default=0)
     palmeta_cost: Mapped[float] = mapped_column(Float, default=0)

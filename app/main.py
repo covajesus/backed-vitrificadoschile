@@ -116,6 +116,7 @@ def ensure_role_pay(engine) -> None:
     ensure_column(engine, "roles", "contract_type_id", "contract_type_id INTEGER NULL")
     ensure_column(engine, "roles", "protected", "protected INTEGER NOT NULL DEFAULT 0")
     ensure_column(engine, "users", "salary", f"salary {amount} NOT NULL DEFAULT 0")
+    ensure_column(engine, "users", "contract_type_id", "contract_type_id INTEGER NULL")
     with engine.begin() as connection:
         if "by_contract" in role_columns:
             connection.execute(text(
@@ -136,6 +137,11 @@ def ensure_role_pay(engine) -> None:
             "UPDATE roles SET contract_type_id = 2 WHERE contract_type_id IS NULL AND id IN (2, 3)"
         ))
         connection.execute(text("UPDATE roles SET protected = 1 WHERE id IN (1, 2, 3)"))
+        connection.execute(text(
+            "UPDATE users SET contract_type_id = ("
+            "SELECT roles.contract_type_id FROM roles WHERE roles.id = users.rol_id"
+            ") WHERE contract_type_id IS NULL AND rol_id <> 1"
+        ))
 
 
 def ensure_hourly_rate(engine) -> None:

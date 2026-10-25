@@ -41,6 +41,7 @@ def account_out(row: UserRow, item_prices: list[ItemPriceOut] | None = None) -> 
         email=row.email,
         roleId=row.rol_id,
         workerId=None,
+        contractTypeId="" if not row.contract_type_id else str(row.contract_type_id),
         hourlyRate=row.hourly_rate,
         salary=row.salary,
         palmetaCost=row.palmeta_cost,
