@@ -224,6 +224,17 @@ class CrewBody(BaseModel):
     members: list[CrewMemberBody] = []
 
 
+class StaffScheduleBody(BaseModel):
+    mode: str
+    dates: list[str] = []
+
+
+class StaffScheduleOut(BaseModel):
+    userId: str
+    mode: str
+    dates: list[str] = []
+
+
 class AssignmentOut(BaseModel):
     workId: str
     workerId: str

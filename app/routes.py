@@ -2,6 +2,7 @@ import calendar
 import json
 import math
 import re
+import secrets
 from typing import NoReturn
 
 import os
@@ -51,6 +52,7 @@ from app.models import (
     RoleRow,
     SettingRow,
     SettlementRow,
+    StaffScheduleRow,
     StatusRow,
     TaskBlockRow,
     TaskRow,
@@ -76,6 +78,8 @@ from app.schemas import (
     ClientRideOut,
     ContractTypeOut,
     AssignmentOut,
+    StaffScheduleBody,
+    StaffScheduleOut,
     ChargeItemBody,
     ChargeItemOut,
     ChargeOrderBody,
@@ -970,6 +974,50 @@ def delete_work(work_id: str, _: AccountRow = Depends(require_admin), db: Sessio
     db.commit()
 
 
+OFFICE_MODES = {"weekdays", "all", "except-sunday", "manual"}
+
+
+@router.get("/staff-schedules", response_model=list[StaffScheduleOut])
+def list_staff_schedules(
+    _: AccountRow = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> list[StaffScheduleOut]:
+    rows = db.query(StaffScheduleRow).all()
+    return [staff_schedule_out(row) for row in rows]
+
+
+@router.put("/staff-schedules/{user_id}", response_model=StaffScheduleOut)
+def save_staff_schedule(
+    user_id: str,
+    body: StaffScheduleBody,
+    _: AccountRow = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> StaffScheduleOut:
+    mode = body.mode.strip()
+    if mode not in OFFICE_MODES:
+        fail(400, "Elige cómo trabaja.")
+    person_id = num(user_id)
+    person = db.get(UserRow, person_id) if person_id is not None else None
+    if person is None or person.deleted_at is not None:
+        fail(404, "El empleado no existe.")
+    dates = sorted({item for item in body.dates if len(item) == 10 and item[4] == "-" and item[7] == "-"})
+    row = db.query(StaffScheduleRow).filter(StaffScheduleRow.user_id == person.id).one_or_none()
+    if row is None:
+        row = StaffScheduleRow(user_id=person.id, mode=mode, dates=",".join(dates))
+        db.add(row)
+    else:
+        row.mode = mode
+        row.dates = ",".join(dates)
+    db.commit()
+    db.refresh(row)
+    return staff_schedule_out(row)
+
+
+def staff_schedule_out(row: StaffScheduleRow) -> StaffScheduleOut:
+    dates = [item for item in (row.dates or "").split(",") if item]
+    return StaffScheduleOut(userId=str(row.user_id), mode=row.mode, dates=dates)
+
+
 @router.get("/assignments", response_model=list[AssignmentOut])
 def list_assignments(
     account: AccountRow = Depends(current_account),
@@ -1270,7 +1318,11 @@ def required_account_details(body: AccountBody | ProfileBody) -> str | None:
 
 
 def store_bank_details(db: Session, row: AccountRow, body: AccountBody) -> str | None:
-    if body.roleId == ROLE_ADMIN and not body.bankId.strip() and not body.accountTypeId.strip():
+    if not body.bankId.strip() and not body.accountTypeId.strip():
+        row.bank_id = None
+        row.bank = ""
+        row.account_type_id = None
+        row.account_type = ""
         return None
     bank_message = assign_bank(db, row, body.bankId)
     if bank_message:
@@ -1329,7 +1381,8 @@ def create_account(body: AccountBody, _: AccountRow = Depends(require_admin), db
     message = account_error(body, creating=True, role=role, kind=kind)
     if message:
         fail(400, message)
-    if db.query(AccountRow).filter(AccountRow.email == body.email.strip().lower()).first():
+    email = stored_email(body.email)
+    if email_in_use(db, email):
         fail(400, "Ya existe una cuenta con ese correo.")
     first, last = person_names(body)
     row = AccountRow(
@@ -1343,8 +1396,8 @@ def create_account(body: AccountBody, _: AccountRow = Depends(require_admin), db
         account_number=body.accountNumber.strip(),
         account_holder=body.accountHolder.strip(),
         account_holder_document_id=body.accountHolderDocumentId.strip(),
-        email=body.email.strip().lower(),
-        password_hash=hash_password(body.password),
+        email=email,
+        password_hash=hash_password(body.password or secrets.token_urlsafe(32)),
         status_id=account_status_id(body.statusId),
     )
     apply_account_pay(row, body, role, kind)
@@ -1589,9 +1642,12 @@ def update_account(
     if message:
         fail(400, message)
     first, last = person_names(body)
+    email = stored_email(body.email)
+    if email_in_use(db, email, row.id):
+        fail(400, "Ya existe una cuenta con ese correo.")
     row.names = first
     row.lastnames = last
-    row.email = body.email.strip().lower()
+    row.email = email
     row.phone = body.phone.strip()
     row.address = body.address.strip()
     row.document_id = body.documentId.strip()
@@ -1650,26 +1706,30 @@ def person_fields_error(phone: str, photo: str) -> str | None:
     return None
 
 
+def stored_email(raw: str) -> str | None:
+    email = raw.strip().lower()
+    return email or None
+
+
+def email_in_use(db: Session, email: str | None, ignore_id: int | None = None) -> bool:
+    if not email:
+        return False
+    query = db.query(AccountRow).filter(AccountRow.email == email)
+    if ignore_id is not None:
+        query = query.filter(AccountRow.id != ignore_id)
+    return query.first() is not None
+
+
 def account_error(body: AccountBody, creating: bool, role: RoleRow, kind: ContractTypeRow | None) -> str | None:
+    del creating, role, kind
     message = person_fields_error(body.phone, body.photoDataUrl)
     if message:
         return message
-    first, _last = person_names(body)
-    if len(first) < 2:
-        return "Indica el nombre."
-    if kind is not None and kind.asks_salary and body.salary <= 0:
-        return "Indica el sueldo."
-    if kind is not None and kind.asks_hourly_rate and body.hourlyRate <= 0 and (not kind.asks_item_prices or role.id == ROLE_HELPER):
-        return rate_required_message(kind)
-    if creating and len(body.password) < 4:
-        return "La contraseña debe tener al menos 4 caracteres."
-    if "@" not in body.email:
+    if body.email.strip() and "@" not in body.email:
         return "Indica un correo válido."
-    if role.id == ROLE_ADMIN:
-        if len(phone_digits(body.phone)) < 8:
-            return "Indica un teléfono válido."
-        return None
-    return required_account_details(body)
+    if body.password and len(body.password) < 4:
+        return "La contraseña debe tener al menos 4 caracteres."
+    return None
 
 
 def stored_role(db: Session, role_id: int) -> RoleRow:

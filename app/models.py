@@ -159,7 +159,7 @@ class UserRow(Base):
     names: Mapped[str] = mapped_column(String(120))
     lastnames: Mapped[str] = mapped_column(String(120), default="")
     photo: Mapped[str] = mapped_column(long_text(), default="")
-    email: Mapped[str] = mapped_column(String(200), unique=True)
+    email: Mapped[str | None] = mapped_column(String(200), unique=True, nullable=True)
     password_hash: Mapped[str] = mapped_column(String(200))
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
@@ -184,6 +184,17 @@ class UserRow(Base):
     @active.setter
     def active(self, value: bool) -> None:
         self.deleted_at = None if value else utcnow()
+
+
+class StaffScheduleRow(Base):
+    __tablename__ = "staff_schedules"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), unique=True)
+    mode: Mapped[str] = mapped_column(String(20), default="weekdays")
+    dates: Mapped[str] = mapped_column(String(4000), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
 
 
 class WorkScheduleRow(Base):

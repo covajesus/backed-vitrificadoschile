@@ -1394,3 +1394,37 @@ def test_alerts_follow_pay_assignment_and_the_lead_finishing_a_work() -> None:
     back = api.get("/api/alerts", headers=helper).json()
     assert back[0]["kind"] == "assigned"
     assert "agregaron" in back[0]["message"]
+
+
+def test_staff_schedule_saves_the_month_without_a_work() -> None:
+    api = client()
+    headers = admin_headers(api)
+    accounts = api.get("/api/accounts", headers=headers).json()
+    lead = next(item for item in accounts if item["email"] == "lead.worker@vitrificados.local")
+    saved = api.put(f"/api/staff-schedules/{lead['id']}", headers=headers, json={"mode": "weekdays", "dates": []})
+    assert saved.status_code == 200
+    assert saved.json()["mode"] == "weekdays"
+    assert saved.json()["userId"] == lead["id"]
+    listed = api.get("/api/staff-schedules", headers=headers)
+    assert listed.status_code == 200
+    assert any(item["userId"] == lead["id"] and item["mode"] == "weekdays" for item in listed.json())
+    manual = api.put(
+        f"/api/staff-schedules/{lead['id']}",
+        headers=headers,
+        json={"mode": "manual", "dates": ["2026-10-03", "bad"]},
+    )
+    assert manual.status_code == 200
+    assert manual.json()["dates"] == ["2026-10-03"]
+    rejected = api.put(f"/api/staff-schedules/{lead['id']}", headers=headers, json={"mode": "weekend", "dates": []})
+    assert rejected.status_code == 400
+
+
+def test_user_data_is_optional() -> None:
+    api = client()
+    headers = admin_headers(api)
+    created = api.post("/api/accounts", headers=headers, json={"name": "", "email": "", "roleId": 3})
+    assert created.status_code == 200
+    assert created.json()["firstName"] == ""
+    assert created.json()["email"] == ""
+    again = api.post("/api/accounts", headers=headers, json={"name": "", "email": "", "roleId": 3})
+    assert again.status_code == 200

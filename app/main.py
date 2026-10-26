@@ -50,6 +50,19 @@ def ensure_work_days(engine) -> None:
         connection.execute(text("ALTER TABLE works ADD COLUMN work_days VARCHAR(20) NOT NULL DEFAULT 'weekdays'"))
 
 
+def ensure_optional_email(engine) -> None:
+    inspector = inspect(engine)
+    if "users" not in inspector.get_table_names():
+        return
+    column = next((item for item in inspector.get_columns("users") if item["name"] == "email"), None)
+    if column is None or column.get("nullable"):
+        return
+    if engine.dialect.name != "mysql":
+        return
+    with engine.begin() as connection:
+        connection.execute(text("ALTER TABLE users MODIFY email VARCHAR(200) NULL"))
+
+
 def ensure_column(engine, table: str, column: str, ddl: str) -> None:
     inspector = inspect(engine)
     if table not in inspector.get_table_names():
@@ -256,6 +269,7 @@ def create_app(database_url: str | None = None, secret: str = SECRET) -> FastAPI
     ensure_hourly_rate(engine)
     ensure_work_days(engine)
     ensure_measure_columns(engine)
+    ensure_optional_email(engine)
     ensure_decimal_quantity(engine)
     if database_url.startswith("sqlite"):
         with engine.begin() as connection:
