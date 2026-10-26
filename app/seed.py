@@ -20,7 +20,6 @@ from app.models import (
     WorkItemRow,
     WorkRow,
     WorkScheduleRow,
-    utcnow,
 )
 
 CHARGE_ITEM_NAMES = (
@@ -149,16 +148,15 @@ def seed_charge_items(db: Session) -> None:
 
 
 def ensure_charge_items(db: Session) -> None:
-    now = utcnow()
-    for row in db.query(ChargeItemRow).filter(ChargeItemRow.name.in_(("Sellado", "Pulido")), ChargeItemRow.deleted_at.is_(None)):
-        row.deleted_at = now
-    existing = {
-        row.name
-        for row in db.query(ChargeItemRow).filter(ChargeItemRow.deleted_at.is_(None))
-    }
-    for name in CHARGE_ITEM_NAMES:
-        if name not in existing:
-            db.add(ChargeItemRow(name=name))
+    existing = {row.name for row in db.query(ChargeItemRow).all()}
+    missing = [name for name in CHARGE_ITEM_NAMES if name not in existing]
+    if not missing:
+        return
+    taken = db.query(ChargeItemRow.position).filter(ChargeItemRow.parent_id.is_(None)).all()
+    position = max((int(row[0] or 0) for row in taken), default=-1) + 1
+    for name in missing:
+        db.add(ChargeItemRow(name=name, position=position))
+        position += 1
     db.commit()
 
 

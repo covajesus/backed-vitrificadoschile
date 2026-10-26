@@ -1419,6 +1419,23 @@ def test_staff_schedule_saves_the_month_without_a_work() -> None:
     assert rejected.status_code == 400
 
 
+def test_a_deploy_does_not_bring_back_a_removed_partida() -> None:
+    from app.seed import ensure_charge_items
+
+    api = client()
+    headers = admin_headers(api)
+    before = api.get("/api/charge-items", headers=headers).json()
+    instalacion = next(item for item in before if item["name"] == "Instalación")
+    order = [item["name"] for item in before if item["id"] != instalacion["id"]]
+    removed = api.delete(f"/api/charge-items/{instalacion['id']}", headers=headers)
+    assert removed.status_code == 204
+    with api.app.state.session_factory() as db:
+        ensure_charge_items(db)
+    after = api.get("/api/charge-items", headers=headers).json()
+    assert [item["name"] for item in after] == order
+    assert all(item["name"] != "Instalación" for item in after)
+
+
 def test_user_data_is_optional() -> None:
     api = client()
     headers = admin_headers(api)
