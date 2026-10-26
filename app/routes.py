@@ -601,6 +601,7 @@ def create_work(body: WorkBody, _: AccountRow = Depends(require_admin), db: Sess
         work_days=body.workDays,
         palmeta_count=body.palmetaCount,
         square_meters=body.squareMeters,
+        work_value=body.workValue,
         client_name=body.clientName.strip(),
         client_phone=body.clientPhone.strip(),
         apartment=body.apartment.strip(),
@@ -648,6 +649,7 @@ def update_work(
     row.work_days = body.workDays
     row.palmeta_count = body.palmetaCount
     row.square_meters = body.squareMeters
+    row.work_value = body.workValue
     row.client_name = body.clientName.strip()
     row.client_phone = body.clientPhone.strip()
     row.apartment = body.apartment.strip()
@@ -691,6 +693,7 @@ def work_fields_error(body: WorkBody) -> str | None:
         body.scheduleDates,
         body.finishSample,
         body.tintSample,
+        body.workValue,
     )
 
 
@@ -1832,6 +1835,13 @@ def next_charge_position(db: Session) -> int:
     return max(int(row[0]) for row in rows) + 1
 
 
+def stored_pricing(raw: str) -> str:
+    value = raw.strip() or "amount"
+    if value not in ("amount", "percent"):
+        fail(400, "Indica si la partida es por valor o por %.")
+    return value
+
+
 @router.post("/charge-items", response_model=ChargeItemOut)
 def create_charge_item(body: ChargeItemBody, _: AccountRow = Depends(require_admin), db: Session = Depends(get_db)) -> ChargeItemOut:
     name = body.name.strip()
@@ -1841,7 +1851,13 @@ def create_charge_item(body: ChargeItemBody, _: AccountRow = Depends(require_adm
         fail(400, "El tipo de partida no es válido.")
     if charge_name_taken(db, name):
         fail(400, "Ya existe una partida con ese nombre.")
-    row = ChargeItemRow(name=name, kind=body.kind, unit_id=assign_unit(db, body.unitId), position=next_charge_position(db))
+    row = ChargeItemRow(
+        name=name,
+        kind=body.kind,
+        pricing=stored_pricing(body.pricing),
+        unit_id=assign_unit(db, body.unitId),
+        position=next_charge_position(db),
+    )
     db.add(row)
     db.flush()
     save_charge_lines(db, row, body)
@@ -1894,6 +1910,7 @@ def update_charge_item(
     row.name = name
     row.unit_id = assign_unit(db, body.unitId)
     row.kind = body.kind
+    row.pricing = stored_pricing(body.pricing)
     save_charge_lines(db, row, body)
     db.commit()
     db.refresh(row)

@@ -33,6 +33,7 @@ class ChargeItemBody(BaseModel):
     name: str
     unitId: str = ""
     kind: str = "simple"
+    pricing: str = "amount"
     lines: list[ChargeLineBody] = []
 
 
@@ -42,6 +43,7 @@ class ChargeItemOut(BaseModel):
     unitId: str = ""
     unit: str = ""
     kind: str = "simple"
+    pricing: str = "amount"
     position: int = 0
     lines: list[ChargeLineOut] = []
 
@@ -127,6 +129,7 @@ class WorkBody(BaseModel):
     workDays: str = "weekdays"
     palmetaCount: int = 0
     squareMeters: float = 0
+    workValue: float = 0
     clientName: str = ""
     clientPhone: str = ""
     apartment: str = ""

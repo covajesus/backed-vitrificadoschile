@@ -726,6 +726,7 @@ def test_charge_items_have_a_price_on_the_lead_and_a_quantity_on_the_work() -> N
         "plannedHours": 8,
         "palmetaCount": 10,
         "squareMeters": 20,
+        "workValue": 2500000,
         "clientName": "Cliente Ítem",
         "clientPhone": "987654321",
         "apartment": "1204",
@@ -737,6 +738,7 @@ def test_charge_items_have_a_price_on_the_lead_and_a_quantity_on_the_work() -> N
     assert work.json()["apartment"] == "1204"
     assert work.json()["crewNote"] == "Tocar el timbre del conserje."
     assert work.json()["workNotice"] == "El piso ya está lijado."
+    assert work.json()["workValue"] == 2500000
     assert work.json()["charges"] == [{"itemId": item_id, "quantity": 4.5, "evaluate": False}]
     composed = api.post("/api/charge-items", headers=headers, json={
         "name": "Instalación especial",
@@ -745,6 +747,10 @@ def test_charge_items_have_a_price_on_the_lead_and_a_quantity_on_the_work() -> N
     })
     assert composed.status_code == 200
     assert composed.json()["kind"] == "composed"
+    assert composed.json()["pricing"] == "amount"
+    percent = api.post("/api/charge-items", headers=headers, json={"name": "Comisión", "unitId": by_name["m²"], "pricing": "percent"})
+    assert percent.status_code == 200
+    assert percent.json()["pricing"] == "percent"
     assert [(line["name"], line["unit"], line["unitId"]) for line in composed.json()["lines"]] == [
         ("Mano de obra", "m²", by_name["m²"]),
         ("Material", "un", by_name["un"]),

@@ -125,6 +125,7 @@ def work_error(
     schedule_dates: str = "",
     finish_sample: str = "",
     tint_sample: str = "",
+    work_value: float = 0,
 ) -> str | None:
     if len(name.strip()) < 3:
         return "El nombre debe tener al menos 3 caracteres."
@@ -160,6 +161,8 @@ def work_error(
         return "Indica los días de la obra."
     if len(finish_sample.strip()) > 160 or len(tint_sample.strip()) > 160:
         return "El tipo de muestra es demasiado largo."
+    if not math.isfinite(work_value) or work_value < 0:
+        return "El valor de la obra no puede ser negativo."
     return None
 
 

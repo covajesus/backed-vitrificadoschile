@@ -64,6 +64,8 @@ def ensure_column(engine, table: str, column: str, ddl: str) -> None:
 def ensure_measure_columns(engine) -> None:
     ensure_column(engine, "works", "palmeta_count", "palmeta_count INTEGER NOT NULL DEFAULT 0")
     ensure_column(engine, "works", "square_meters", "square_meters FLOAT NOT NULL DEFAULT 0")
+    amount = "DOUBLE" if engine.dialect.name == "mysql" else "FLOAT"
+    ensure_column(engine, "works", "work_value", f"work_value {amount} NOT NULL DEFAULT 0")
     ensure_column(engine, "works", "client_name", "client_name VARCHAR(160) NOT NULL DEFAULT ''")
     ensure_column(engine, "works", "client_phone", "client_phone VARCHAR(30) NOT NULL DEFAULT ''")
     ensure_column(engine, "works", "apartment", "apartment VARCHAR(40) NOT NULL DEFAULT ''")
@@ -89,6 +91,7 @@ def ensure_measure_columns(engine) -> None:
     ensure_column(engine, "charge_items", "unit_id", "unit_id INTEGER NULL")
     ensure_column(engine, "charge_items", "parent_id", "parent_id INTEGER NULL")
     ensure_column(engine, "charge_items", "position", "position INTEGER NOT NULL DEFAULT 0")
+    ensure_column(engine, "charge_items", "pricing", "pricing VARCHAR(20) NOT NULL DEFAULT 'amount'")
     ensure_column(engine, "statuses", "scope", "scope VARCHAR(20) NOT NULL DEFAULT 'work'")
     ensure_column(engine, "users", "status_id", "status_id INTEGER NULL")
     ensure_column(engine, "work_schedules", "start_date", "start_date VARCHAR(10) NOT NULL DEFAULT ''")

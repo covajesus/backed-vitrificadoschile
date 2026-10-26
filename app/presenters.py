@@ -14,6 +14,7 @@ def work_out(row: WorkRow, pending_palmeta_count: int | None = None, charges: li
         workDays=row.work_days,
         palmetaCount=row.palmeta_count,
         squareMeters=row.square_meters,
+        workValue=row.work_value or 0,
         clientName=row.client_name,
         clientPhone=row.client_phone,
         apartment=row.apartment or "",
@@ -75,6 +76,7 @@ def charge_item_out(
         unitId="" if row.unit_id is None else str(row.unit_id),
         unit=names.get(row.unit_id, ""),
         kind=row.kind or "simple",
+        pricing=row.pricing if row.pricing in {"amount", "percent"} else "amount",
         position=row.position or 0,
         lines=[
             ChargeLineOut(
