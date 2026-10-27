@@ -1102,9 +1102,11 @@ def replace_crew(
                 fail(400, "La fecha excluida no es válida.")
             if day and day not in excluded:
                 excluded.append(day)
-        role_id = member.roleId if member.roleId in (ROLE_SITE_LEAD, ROLE_HELPER) else person.rol_id
-        if role_id not in (ROLE_SITE_LEAD, ROLE_HELPER):
-            fail(400, "Indica si en esta obra es maestro o ayudante.")
+        if person.rol_id == ROLE_ADMIN:
+            fail(400, "El administrador no se asigna a una obra.")
+        role_id = member.roleId if member.roleId not in (0, ROLE_ADMIN) else person.rol_id
+        if role_id == ROLE_ADMIN:
+            fail(400, "Indica el rol de la persona en esta obra.")
         unique[person.id] = CrewMemberBody(
             workerId=str(person.id),
             startDate=start,
