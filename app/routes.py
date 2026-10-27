@@ -1226,6 +1226,20 @@ def list_arrivals(account: AccountRow = Depends(current_account), db: Session = 
     ]
 
 
+@router.delete("/arrivals/{arrival_id}", status_code=204)
+@router.post("/arrivals/{arrival_id}/remove", status_code=204)
+def delete_arrival(
+    arrival_id: str,
+    _: AccountRow = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> None:
+    row = db.get(TimeClockRow, num(arrival_id))
+    if row is None:
+        fail(404, "La marca no existe.")
+    db.delete(row)
+    db.commit()
+
+
 @router.post("/arrivals", response_model=ArrivalOut)
 def register_arrival(
     body: ArrivalBody,

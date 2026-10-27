@@ -185,6 +185,27 @@ def test_early_arrival_snaps_to_shift_start() -> None:
     assert marked.json()["at"] == "2026-10-03T08:00:00"
 
 
+def test_admin_can_delete_an_arrival() -> None:
+    api = client()
+    lead = lead_headers(api)
+    marked = api.post("/api/arrivals", headers=lead, json={
+        "workId": "1",
+        "workerId": "2",
+        "at": "2026-10-03T08:05:00",
+        "latitude": -33.4,
+        "longitude": -70.5,
+        "photoDataUrl": PHOTO,
+    })
+    assert marked.status_code == 200
+    arrival_id = marked.json()["id"]
+    denied = api.post(f"/api/arrivals/{arrival_id}/remove", headers=lead)
+    assert denied.status_code == 403
+    removed = api.post(f"/api/arrivals/{arrival_id}/remove", headers=admin_headers(api))
+    assert removed.status_code == 204
+    listed = api.get("/api/arrivals", headers=admin_headers(api))
+    assert arrival_id not in {item["id"] for item in listed.json()}
+
+
 def test_a_client_ride_moves_the_late_clock_and_confirms_the_mark(monkeypatch) -> None:
     sent: list[dict] = []
 
