@@ -975,7 +975,7 @@ def delete_work(work_id: str, _: AccountRow = Depends(require_admin), db: Sessio
     db.commit()
 
 
-OFFICE_MODES = {"weekdays", "all", "except-sunday", "manual"}
+OFFICE_MODES = {"weekdays", "all", "except-sunday", "full-month", "manual"}
 TIME_PATTERN = re.compile(r"^\d{2}:\d{2}$")
 
 
@@ -986,6 +986,23 @@ def list_staff_schedules(
 ) -> list[StaffScheduleOut]:
     rows = db.query(StaffScheduleRow).all()
     return [staff_schedule_out(row) for row in rows]
+
+
+@router.delete("/staff-schedules/{user_id}")
+def delete_staff_schedule(
+    user_id: str,
+    _: AccountRow = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> dict[str, bool]:
+    person_id = num(user_id)
+    person = db.get(UserRow, person_id) if person_id is not None else None
+    if person is None or person.deleted_at is not None:
+        fail(404, "El empleado no existe.")
+    row = db.query(StaffScheduleRow).filter(StaffScheduleRow.user_id == person.id).one_or_none()
+    if row is not None:
+        db.delete(row)
+        db.commit()
+    return {"ok": True}
 
 
 @router.put("/staff-schedules/{user_id}", response_model=StaffScheduleOut)
