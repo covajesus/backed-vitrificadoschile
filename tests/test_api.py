@@ -1166,11 +1166,17 @@ def test_settings_store_many_emails_and_phones() -> None:
 def test_late_slot_starts_thirty_minutes_after_grace() -> None:
     from datetime import date
 
-    from app.domain import late_slot, scheduled_on
+    from app.domain import chile_wall_clock, late_notice_due, late_slot, scheduled_on
 
     assert late_slot("08:00", 10, 8 * 60 + 20) is None
     assert late_slot("08:00", 10, 8 * 60 + 40) == 30
     assert late_slot("08:00", 10, 9 * 60 + 10) == 60
+    assert late_notice_due("08:00", 10, 8 * 60 + 40) == 30
+    assert late_notice_due("08:00", 10, 8 * 60 + 41) is None
+    assert late_notice_due("08:00", 10, 8 * 60 + 27) is None
+    assert late_notice_due("08:00", 10, 9 * 60 + 10) == 60
+    assert chile_wall_clock("2026-10-27T13:40:00.000Z") == "2026-10-27T10:40:00"
+    assert chile_wall_clock("2026-10-27T10:40:00") == "2026-10-27T10:40:00"
     monday = date(2026, 10, 5)
     assert scheduled_on("weekdays", "", 0, set(), monday) is True
     assert scheduled_on("weekdays", "2026-10-05", 5, {"2026-10-05"}, monday) is False

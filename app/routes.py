@@ -15,6 +15,7 @@ from app.deps import current_account, get_db, require_admin
 from app.domain import (
     OFF_SITE_MESSAGE,
     arrival_block_reason,
+    chile_wall_clock,
     client_ride_for,
     minutes_of,
     on_site,
@@ -1253,7 +1254,7 @@ def register_arrival(
     )
     if message or work is None or person is None:
         fail(400, message or "No se pudo registrar la llegada.")
-    moment = body.at
+    moment = chile_wall_clock(body.at)
     if len(moment) < 16 or moment[4] != "-" or moment[7] != "-" or moment[10] != "T":
         fail(400, "Indica el día y la hora.")
     ride = client_ride_for(stored_client_rides(db), work.id, person.id, moment[:10])

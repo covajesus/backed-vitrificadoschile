@@ -30,6 +30,31 @@ def minutes_of(value: str) -> int | None:
     return hour * 60 + minute
 
 
+def chile_wall_clock(raw: str) -> str:
+    """Normalize arrival `at` to Chile wall clock `YYYY-MM-DDTHH:MM:SS` (no offset)."""
+    text = (raw or "").strip().replace(" ", "T")
+    if not text:
+        return ""
+    try:
+        from zoneinfo import ZoneInfo
+
+        chile = ZoneInfo("America/Santiago")
+        if text.endswith("Z"):
+            instant = datetime.fromisoformat(text.replace("Z", "+00:00"))
+            local = instant.astimezone(chile).replace(tzinfo=None)
+            return local.strftime("%Y-%m-%dT%H:%M:%S")
+        if len(text) > 19 and text[19] in "+-":
+            instant = datetime.fromisoformat(text)
+            local = instant.astimezone(chile).replace(tzinfo=None)
+            return local.strftime("%Y-%m-%dT%H:%M:%S")
+    except Exception:
+        pass
+    cleaned = text[:19]
+    if len(cleaned) == 16:
+        cleaned += ":00"
+    return cleaned
+
+
 WORK_DAY_MODES = {"weekdays", "weekend", "all", "except-sunday"}
 MODE_DAYS = {
     "weekdays": {1, 2, 3, 4, 5},
@@ -104,6 +129,20 @@ def late_slot(shift_start: str, grace_minutes: int, now_minutes: int) -> int | N
     if late < 30:
         return None
     return (late // 30) * 30
+
+
+def late_notice_due(shift_start: str, grace_minutes: int, now_minutes: int) -> int | None:
+    """Only the exact minute when a 30-minute late slot begins (Chile wall clock)."""
+    slot = late_slot(shift_start, grace_minutes, now_minutes)
+    if slot is None:
+        return None
+    start = minutes_of(shift_start)
+    if start is None:
+        return None
+    grace = grace_minutes if isinstance(grace_minutes, int) and grace_minutes > 0 else 0
+    if now_minutes != start + grace + slot:
+        return None
+    return slot
 
 
 def work_error(

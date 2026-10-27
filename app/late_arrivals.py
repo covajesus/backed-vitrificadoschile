@@ -6,7 +6,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.domain import client_ride_for, late_slot, scheduled_on
+from app.domain import client_ride_for, late_notice_due, scheduled_on
 from app.models import (
     ROLE_HELPER,
     ROLE_SITE_LEAD,
@@ -83,7 +83,7 @@ def _remind(db: Session, now: datetime) -> int:
             continue
         ride = client_ride_for(ride_rows, work.id, person.id, today_iso)
         start = ride[0] if ride is not None else work.shift_start
-        slot = late_slot(start, grace, now_minutes)
+        slot = late_notice_due(start, grace, now_minutes)
         if slot is None or len((person.phone or "").strip()) < 8:
             continue
         already = db.query(LateNoticeRow).filter(
@@ -126,6 +126,6 @@ def start_late_watch(session_factory) -> None:
                     db.commit()
             except Exception:
                 pass
-            time.sleep(30 * 60)
+            time.sleep(60)
 
     threading.Thread(target=loop, name="late-arrivals", daemon=True).start()
