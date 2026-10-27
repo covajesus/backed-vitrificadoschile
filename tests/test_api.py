@@ -229,6 +229,13 @@ def test_a_client_ride_moves_the_late_clock_and_confirms_the_mark(monkeypatch) -
     assert created.status_code == 200
     assert created.json()["workerIds"] == ["2", "3"]
     assert created.json()["arrivalTime"] == "09:30"
+    transfers = [item for item in sent if item["name"] == "transfers"]
+    assert len(transfers) >= 1
+    assert transfers[0]["language"] == "es"
+    assert transfers[0]["parameters"][2] == "05/10/2026"
+    assert transfers[0]["parameters"][3] == "09:30"
+    assert transfers[0]["parameters"][4] == "Av. Apoquindo 4500, Las Condes"
+    assert "maps" in transfers[0]["parameters"][5]
     lead = lead_headers(api)
     away = api.post("/api/arrivals", headers=lead, json={
         "workId": "1",
@@ -248,12 +255,12 @@ def test_a_client_ride_moves_the_late_clock_and_confirms_the_mark(monkeypatch) -
         "photoDataUrl": PHOTO,
     })
     assert marked.status_code == 200
-    assert sent == [{
+    assert {
         "phone": "912345678",
         "name": "successfully_marked",
         "parameters": ["Maestro de obra", "Inmobiliaria Dominicos", "09:40"],
         "language": "es",
-    }]
+    } in sent
 
 
 def test_admin_marks_any_day_without_gps() -> None:

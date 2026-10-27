@@ -28,7 +28,7 @@ from app.domain import (
     work_error,
 )
 from app.notice_pdf import contract_pdf, money, palmeta_change_pdf, period_label, settlement_pdf
-from app.whatsapp import clean_phone, format_assignment_partidas, format_partida_changes, notify_palmeta_change, notify_scope_request, notify_successful_mark, notify_updated_scope, notify_work_contract, notify_worker_assignment
+from app.whatsapp import clean_phone, format_assignment_partidas, format_partida_changes, notify_palmeta_change, notify_ride_transfer, notify_scope_request, notify_successful_mark, notify_updated_scope, notify_work_contract, notify_worker_assignment
 from app.geocoding import AddressNotFound, locate_address, shorten_address, suggest_addresses
 from app.models import (
     CODE_STATUS,
@@ -1377,7 +1377,40 @@ def create_client_ride(body: ClientRideBody, _: AccountRow = Depends(require_adm
     db.add(row)
     db.commit()
     db.refresh(row)
+    deliver_ride_notice(db, work, [int(item) for item in workers], dates, arrival, row.address, latitude, longitude)
     return client_ride_out(row)
+
+
+def deliver_ride_notice(
+    db: Session,
+    work: WorkRow,
+    user_ids: list[int],
+    dates: list[str],
+    arrival_time: str,
+    address: str,
+    latitude: float,
+    longitude: float,
+) -> None:
+    if not user_ids:
+        return
+    try:
+        label = (work.client_name or "").strip() or work.name
+        for user_id in user_ids:
+            person = db.get(UserRow, user_id)
+            if person is None:
+                continue
+            notify_ride_transfer(
+                phone=person.phone or "",
+                worker_name=person.name,
+                work_name=label,
+                dates=dates,
+                arrival_time=arrival_time,
+                address=address,
+                latitude=latitude,
+                longitude=longitude,
+            )
+    except Exception:
+        return
 
 
 @router.delete("/client-rides/{ride_id}", status_code=204)

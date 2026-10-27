@@ -157,6 +157,21 @@ def map_link(latitude: float, longitude: float) -> str:
     return f"https://www.google.com/maps/search/?api=1&query={latitude},{longitude}"
 
 
+def format_ride_dates(dates: list[str] | str) -> str:
+    items = dates.split(",") if isinstance(dates, str) else dates
+    labels: list[str] = []
+    for item in items:
+        day = item.strip()
+        if len(day) == 10 and day[4] == "-" and day[7] == "-":
+            year, month, day_num = day.split("-")
+            if year.isdigit() and month.isdigit() and day_num.isdigit():
+                labels.append(f"{day_num}/{month}/{year}")
+                continue
+        if day:
+            labels.append(day)
+    return ", ".join(labels) or "-"
+
+
 def format_contract_lines(lines: list[tuple]) -> str:
     rows = []
     for line in lines:
@@ -221,6 +236,7 @@ UPDATED_SCOPE_TEMPLATE = "scope_of_work_updated"
 SCOPE_REQUEST_TEMPLATE = "worker_work_scope_updated"
 MARKED_TEMPLATE = "successfully_marked"
 LATE_TEMPLATE = "late_alert"
+TRANSFERS_TEMPLATE = "transfers"
 
 
 def upload_media(filename: str, content: bytes, mime: str) -> dict:
@@ -352,6 +368,39 @@ def send_buttons(phone: str, text: str, buttons: list[tuple[str, str]]) -> dict:
     })
 
 
+def notify_ride_transfer(
+    *,
+    phone: str,
+    worker_name: str,
+    work_name: str,
+    dates: list[str] | str,
+    arrival_time: str,
+    address: str,
+    latitude: float,
+    longitude: float,
+) -> dict:
+    if len(phone_digits(phone)) < 8:
+        return {"ok": False, "error": "Sin celular."}
+    if not configured():
+        return {"ok": False, "error": "WhatsApp no está configurado."}
+    parameters = [
+        worker_name.strip() or "Trabajador",
+        work_name.strip() or "Obra",
+        format_ride_dates(dates),
+        arrival_time.strip()[:5] or "-",
+        address.strip() or "-",
+        map_link(latitude, longitude),
+    ]
+    try:
+        logo = brand_logo()
+        sent = send_template(phone, TRANSFERS_TEMPLATE, parameters, image=logo, language="es")
+        if logo is not None and not sent.get("ok"):
+            sent = send_template(phone, TRANSFERS_TEMPLATE, parameters, language="es")
+        return sent
+    except Exception as error:
+        return {"ok": False, "error": str(error)}
+
+
 def notify_late_arrival(
     *,
     phone: str,
@@ -469,7 +518,11 @@ def notify_successful_mark(*, phone: str, worker_name: str, work_name: str, arri
         arrival_time.strip()[:5] or "-",
     ]
     try:
-        return send_template(phone, MARKED_TEMPLATE, parameters, language="es")
+        logo = brand_logo()
+        sent = send_template(phone, MARKED_TEMPLATE, parameters, image=logo, language="es")
+        if logo is not None and not sent.get("ok"):
+            sent = send_template(phone, MARKED_TEMPLATE, parameters, language="es")
+        return sent
     except Exception as error:
         return {"ok": False, "error": str(error)}
 
