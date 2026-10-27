@@ -254,6 +254,7 @@ class TimeClockRow(Base):
     photo: Mapped[str] = mapped_column(long_text())
     arrive_date: Mapped[str] = mapped_column(String(10))
     arrive_time: Mapped[str] = mapped_column(String(8))
+    note: Mapped[str] = mapped_column(String(500), default="")
 
 
 class SettingRow(Base):

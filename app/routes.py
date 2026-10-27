@@ -1278,7 +1278,38 @@ def register_arrival(
     site_longitude = ride[2] if ride is not None else work.longitude
     if not manual and (body.latitude is None or body.longitude is None or not on_site(site_latitude, site_longitude, body.latitude, body.longitude)):
         fail(400, OFF_SITE_MESSAGE if body.latitude is not None and body.longitude is not None else "Activa el GPS para registrar la llegada.")
+    prior = db.query(TimeClockRow).filter(
+        TimeClockRow.work_id == work.id,
+        TimeClockRow.user_id == person.id,
+        TimeClockRow.arrive_date == moment[:10],
+    ).all()
+    if not manual and ride is not None and prior:
+        fail(400, "Ya marcaste llegada hoy con el traslado. No hace falta marcar en la obra.")
+    note = (body.note or "").strip()
+    shift_end = (work.shift_end or "").strip()[:5]
+    end_minutes = minutes_of(shift_end)
+    clock_minutes = minutes_of(moment[11:16])
+    # Segunda marca antes del fin: salida anticipada → explicación obligatoria.
+    early_leave = (
+        len(prior) > 0
+        and end_minutes is not None
+        and clock_minutes is not None
+        and clock_minutes < end_minutes
+    )
+    if early_leave and len(note) < 5:
+        fail(400, "Si marcas antes de la hora de salida, escribe una explicación.")
+    # Con traslado: temprano → hora del encuentro; tarde → queda la hora real (atraso).
     shift_start = ride[0] if ride is not None else (work.shift_start or "")
+    # Primera marca antes del inicio: también pide explicación.
+    start_minutes = minutes_of((shift_start or "").strip()[:5])
+    early_arrival = (
+        len(prior) == 0
+        and start_minutes is not None
+        and clock_minutes is not None
+        and clock_minutes < start_minutes
+    )
+    if early_arrival and len(note) < 5:
+        fail(400, "Si marcas antes de la hora, escribe una explicación.")
     moment = clamp_arrival_moment(moment, shift_start)
     location = f"{body.latitude},{body.longitude}" if body.latitude is not None and body.longitude is not None else ""
     row = TimeClockRow(
@@ -1288,6 +1319,7 @@ def register_arrival(
         photo=body.photoDataUrl,
         arrive_date=moment[:10],
         arrive_time=moment[11:19] if len(moment) >= 19 else "00:00:00",
+        note=note[:500],
     )
     db.add(row)
     db.commit()
@@ -1321,10 +1353,17 @@ def client_ride_out(row: ClientRideRow) -> ClientRideOut:
 
 @router.get("/client-rides", response_model=list[ClientRideOut])
 def list_client_rides(account: AccountRow = Depends(current_account), db: Session = Depends(get_db)) -> list[ClientRideOut]:
-    if account.rol_id != ROLE_ADMIN:
-        return []
     rows = db.query(ClientRideRow).filter(ClientRideRow.deleted_at.is_(None)).order_by(ClientRideRow.id.desc()).all()
-    return [client_ride_out(row) for row in rows]
+    if account.rol_id == ROLE_ADMIN:
+        return [client_ride_out(row) for row in rows]
+    # Maestro/ayudante: solo traslados donde van ellos (para marcar en la ubicación del día).
+    wanted = str(account.id)
+    own = []
+    for row in rows:
+        workers = {item.strip() for item in (row.worker_ids or "").split(",") if item.strip()}
+        if wanted in workers:
+            own.append(client_ride_out(row))
+    return own
 
 
 @router.post("/client-rides", response_model=ClientRideOut)

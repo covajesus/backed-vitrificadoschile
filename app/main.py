@@ -120,6 +120,7 @@ def ensure_measure_columns(engine) -> None:
     ensure_column(engine, "settings", "lead_late_per_minute", "lead_late_per_minute INTEGER NOT NULL DEFAULT 0")
     ensure_column(engine, "work_items", "evaluate", "evaluate INTEGER NOT NULL DEFAULT 0")
     ensure_column(engine, "works", "arrival_time", "arrival_time VARCHAR(8) NOT NULL DEFAULT ''")
+    ensure_column(engine, "time_clocks", "note", "note VARCHAR(500) NOT NULL DEFAULT ''")
     ensure_role_pay(engine)
 
 

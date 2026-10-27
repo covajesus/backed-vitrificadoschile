@@ -262,6 +262,7 @@ class ArrivalBody(BaseModel):
     latitude: float | None = None
     longitude: float | None = None
     photoDataUrl: str
+    note: str = ""
 
 
 class ArrivalOut(BaseModel):
@@ -273,6 +274,7 @@ class ArrivalOut(BaseModel):
     longitude: float
     photoDataUrl: str
     whatsappHref: str
+    note: str = ""
 
 
 class ClientRideBody(BaseModel):

@@ -173,7 +173,7 @@ def test_arrival_rejects_a_mark_away_from_the_site() -> None:
 def test_early_arrival_snaps_to_shift_start() -> None:
     api = client()
     headers = lead_headers(api)
-    marked = api.post("/api/arrivals", headers=headers, json={
+    denied = api.post("/api/arrivals", headers=headers, json={
         "workId": "1",
         "workerId": "2",
         "at": "2026-10-03T06:30:00",
@@ -181,8 +181,58 @@ def test_early_arrival_snaps_to_shift_start() -> None:
         "longitude": -70.5,
         "photoDataUrl": PHOTO,
     })
+    assert denied.status_code == 400
+    assert "explicación" in denied.json()["detail"].lower()
+    marked = api.post("/api/arrivals", headers=headers, json={
+        "workId": "1",
+        "workerId": "2",
+        "at": "2026-10-03T06:30:00",
+        "latitude": -33.4,
+        "longitude": -70.5,
+        "photoDataUrl": PHOTO,
+        "note": "Llegué temprano por el tráfico de vuelta",
+    })
     assert marked.status_code == 200
     assert marked.json()["at"] == "2026-10-03T08:00:00"
+    assert "temprano" in marked.json()["note"].lower()
+
+
+def test_early_ride_mark_snaps_to_ride_time_and_blocks_second_mark(monkeypatch) -> None:
+    monkeypatch.setenv("META_TOKEN", "")
+    api = client()
+    headers = admin_headers(api)
+    created = api.post("/api/client-rides", headers=headers, json={
+        "workId": "1",
+        "address": "Av. Providencia 100",
+        "arrivalTime": "09:30",
+        "dates": "2026-10-08",
+        "workerIds": ["2"],
+        "latitude": -33.5,
+        "longitude": -70.6,
+    })
+    assert created.status_code == 200
+    lead = lead_headers(api)
+    early = api.post("/api/arrivals", headers=lead, json={
+        "workId": "1",
+        "workerId": "2",
+        "at": "2026-10-08T08:50:00",
+        "latitude": -33.5,
+        "longitude": -70.6,
+        "photoDataUrl": PHOTO,
+        "note": "Llegué temprano al punto de encuentro",
+    })
+    assert early.status_code == 200
+    assert early.json()["at"] == "2026-10-08T09:30:00"
+    again = api.post("/api/arrivals", headers=lead, json={
+        "workId": "1",
+        "workerId": "2",
+        "at": "2026-10-08T10:00:00",
+        "latitude": -33.5,
+        "longitude": -70.6,
+        "photoDataUrl": PHOTO,
+    })
+    assert again.status_code == 400
+    assert "traslado" in again.json()["detail"].lower()
 
 
 def test_admin_can_delete_an_arrival() -> None:
@@ -237,6 +287,9 @@ def test_a_client_ride_moves_the_late_clock_and_confirms_the_mark(monkeypatch) -
     assert transfers[0]["parameters"][4] == "Av. Apoquindo 4500, Las Condes"
     assert "maps" in transfers[0]["parameters"][5]
     lead = lead_headers(api)
+    own_rides = api.get("/api/client-rides", headers=lead)
+    assert own_rides.status_code == 200
+    assert any(item["arrivalTime"] == "09:30" and item["workId"] == "1" for item in own_rides.json())
     away = api.post("/api/arrivals", headers=lead, json={
         "workId": "1",
         "workerId": "2",

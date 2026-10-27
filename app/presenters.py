@@ -149,4 +149,5 @@ def arrival_out(row: TimeClockRow, person_name: str, work_name: str) -> ArrivalO
         longitude=longitude,
         photoDataUrl=row.photo,
         whatsappHref=whatsapp_href(notice),
+        note=(row.note or "").strip(),
     )
