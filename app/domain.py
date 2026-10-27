@@ -240,7 +240,13 @@ def distance_meters(latitude: float, longitude: float, other_latitude: float, ot
     return 2 * earth * math.asin(math.sqrt(haversine))
 
 
+def has_site_coordinates(latitude: float, longitude: float) -> bool:
+    return math.isfinite(latitude) and math.isfinite(longitude) and not (latitude == 0 and longitude == 0)
+
+
 def on_site(site_latitude: float, site_longitude: float, latitude: float, longitude: float) -> bool:
+    if not has_site_coordinates(site_latitude, site_longitude):
+        return True
     return distance_meters(site_latitude, site_longitude, latitude, longitude) <= SITE_RADIUS_METERS
 
 

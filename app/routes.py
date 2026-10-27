@@ -1485,8 +1485,6 @@ def update_profile(
     account: AccountRow = Depends(current_account),
     db: Session = Depends(get_db),
 ) -> AccountOut:
-    if account.rol_id != ROLE_ADMIN:
-        fail(403, "Solo el administrador puede cambiar estos datos.")
     message = person_fields_error(body.phone, body.photoDataUrl)
     if message:
         fail(400, message)

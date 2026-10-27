@@ -651,17 +651,18 @@ def test_palmeta_change_only_increases_and_waits_for_the_client() -> None:
     assert current["squareMeters"] == 85
     profile = api.put("/api/accounts/me", headers=headers, json={
         "name": "Maestro de obra",
+        "firstName": "Maestro",
+        "lastName": "de obra",
         "email": "lead.worker@vitrificados.local",
-        "phone": "912345678",
-        "bank": "Banco Estado",
-        "accountType": "Cuenta vista",
-        "accountNumber": "123456",
-        "accountHolder": "Maestro de obra",
-        "palmetaCost": 1,
+        "documentId": "11.111.111-1",
+        "photoDataUrl": "",
+        **banking(api, headers, "Maestro de obra"),
+        "accountNumber": "998877",
     })
-    assert profile.status_code == 403
+    assert profile.status_code == 200
+    assert profile.json()["accountNumber"] == "998877"
     own = api.get("/api/accounts", headers=headers)
-    assert own.json()[0]["bank"] == ""
+    assert own.json()[0]["accountNumber"] == "998877"
     assert own.json()[0]["palmetaCost"] == 1500
     accepted = api.post("/api/whatsapp/webhook", json={
         "entry": [{
