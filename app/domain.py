@@ -226,7 +226,7 @@ def is_valid_national_id(value: str) -> bool:
     return digit == expected
 
 
-SITE_RADIUS_METERS = 20
+SITE_RADIUS_METERS = 50
 OFF_SITE_MESSAGE = "Usted no puede marcar puesto que no se encuentra en la ubicación del trabajo."
 
 
@@ -244,10 +244,21 @@ def has_site_coordinates(latitude: float, longitude: float) -> bool:
     return math.isfinite(latitude) and math.isfinite(longitude) and not (latitude == 0 and longitude == 0)
 
 
-def on_site(site_latitude: float, site_longitude: float, latitude: float, longitude: float) -> bool:
+def site_limit_meters(accuracy_meters: float = 0) -> float:
+    accuracy = accuracy_meters if math.isfinite(accuracy_meters) and accuracy_meters > 0 else 0
+    return SITE_RADIUS_METERS + min(accuracy, 100)
+
+
+def on_site(
+    site_latitude: float,
+    site_longitude: float,
+    latitude: float,
+    longitude: float,
+    accuracy_meters: float = 0,
+) -> bool:
     if not has_site_coordinates(site_latitude, site_longitude):
         return True
-    return distance_meters(site_latitude, site_longitude, latitude, longitude) <= SITE_RADIUS_METERS
+    return distance_meters(site_latitude, site_longitude, latitude, longitude) <= site_limit_meters(accuracy_meters)
 
 
 def arrival_block_reason(
