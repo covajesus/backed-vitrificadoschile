@@ -1433,7 +1433,8 @@ def deliver_ride_notice(
     if not user_ids:
         return
     try:
-        label = (work.client_name or "").strip() or work.name
+        # Traslado: nombre de obra/empresa, no el del cliente.
+        label = (work.name or "").strip() or "Obra"
         for user_id in user_ids:
             person = db.get(UserRow, user_id)
             if person is None:
