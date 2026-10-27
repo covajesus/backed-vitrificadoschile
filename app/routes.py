@@ -981,9 +981,11 @@ TIME_PATTERN = re.compile(r"^\d{2}:\d{2}$")
 
 @router.get("/staff-schedules", response_model=list[StaffScheduleOut])
 def list_staff_schedules(
-    _: AccountRow = Depends(require_admin),
+    account: AccountRow = Depends(current_account),
     db: Session = Depends(get_db),
 ) -> list[StaffScheduleOut]:
+    if account.rol_id != ROLE_ADMIN:
+        return []
     rows = db.query(StaffScheduleRow).all()
     return [staff_schedule_out(row) for row in rows]
 
@@ -1299,7 +1301,9 @@ def client_ride_out(row: ClientRideRow) -> ClientRideOut:
 
 
 @router.get("/client-rides", response_model=list[ClientRideOut])
-def list_client_rides(_: AccountRow = Depends(require_admin), db: Session = Depends(get_db)) -> list[ClientRideOut]:
+def list_client_rides(account: AccountRow = Depends(current_account), db: Session = Depends(get_db)) -> list[ClientRideOut]:
+    if account.rol_id != ROLE_ADMIN:
+        return []
     rows = db.query(ClientRideRow).filter(ClientRideRow.deleted_at.is_(None)).order_by(ClientRideRow.id.desc()).all()
     return [client_ride_out(row) for row in rows]
 
@@ -2102,13 +2106,13 @@ def role_name_taken(db: Session, name: str, ignore_id: int | None = None) -> boo
 
 
 @router.get("/roles", response_model=list[RoleOut])
-def list_roles(_: AccountRow = Depends(require_admin), db: Session = Depends(get_db)) -> list[RoleOut]:
+def list_roles(_: AccountRow = Depends(current_account), db: Session = Depends(get_db)) -> list[RoleOut]:
     rows = db.query(RoleRow).filter(RoleRow.deleted_at.is_(None)).order_by(RoleRow.id).all()
     return [role_out(db, row) for row in rows]
 
 
 @router.get("/contract-types", response_model=list[ContractTypeOut])
-def list_contract_types(_: AccountRow = Depends(require_admin), db: Session = Depends(get_db)) -> list[ContractTypeOut]:
+def list_contract_types(_: AccountRow = Depends(current_account), db: Session = Depends(get_db)) -> list[ContractTypeOut]:
     rows = db.query(ContractTypeRow).filter(ContractTypeRow.deleted_at.is_(None)).order_by(ContractTypeRow.id).all()
     return [
         ContractTypeOut(
@@ -2547,9 +2551,11 @@ def list_alerts(
 
 @router.get("/deductions")
 def list_deductions(
-    _: AccountRow = Depends(require_admin),
+    account: AccountRow = Depends(current_account),
     db: Session = Depends(get_db),
 ) -> list[DeductionOut]:
+    if account.rol_id != ROLE_ADMIN:
+        return []
     rows = (
         db.query(DeductionRow)
         .filter(DeductionRow.deleted_at.is_(None))
