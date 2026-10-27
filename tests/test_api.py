@@ -1431,7 +1431,7 @@ def test_staff_schedule_saves_the_month_without_a_work() -> None:
     assert manual.json()["shiftStart"] == "08:30"
     rejected = api.put(f"/api/staff-schedules/{lead['id']}", headers=headers, json={"mode": "weekend", "dates": []})
     assert rejected.status_code == 400
-    deleted = api.delete(f"/api/staff-schedules/{lead['id']}", headers=headers)
+    deleted = api.post(f"/api/staff-schedules/{lead['id']}/remove", headers=headers)
     assert deleted.status_code == 200
     listed_after = api.get("/api/staff-schedules", headers=headers)
     assert listed_after.status_code == 200

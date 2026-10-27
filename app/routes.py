@@ -988,6 +988,7 @@ def list_staff_schedules(
     return [staff_schedule_out(row) for row in rows]
 
 
+@router.post("/staff-schedules/{user_id}/remove")
 @router.delete("/staff-schedules/{user_id}")
 def delete_staff_schedule(
     user_id: str,
