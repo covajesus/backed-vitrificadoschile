@@ -78,6 +78,7 @@ from app.schemas import (
     ClientRideOut,
     ContractTypeOut,
     AssignmentOut,
+    StaffDayHours,
     StaffScheduleBody,
     StaffScheduleOut,
     ChargeItemBody,
@@ -975,6 +976,7 @@ def delete_work(work_id: str, _: AccountRow = Depends(require_admin), db: Sessio
 
 
 OFFICE_MODES = {"weekdays", "all", "except-sunday", "manual"}
+TIME_PATTERN = re.compile(r"^\d{2}:\d{2}$")
 
 
 @router.get("/staff-schedules", response_model=list[StaffScheduleOut])
@@ -1000,14 +1002,38 @@ def save_staff_schedule(
     person = db.get(UserRow, person_id) if person_id is not None else None
     if person is None or person.deleted_at is not None:
         fail(404, "El empleado no existe.")
+    shift_start = body.shiftStart.strip() or "09:00"
+    shift_end = body.shiftEnd.strip() or "18:00"
+    if TIME_PATTERN.fullmatch(shift_start) is None or TIME_PATTERN.fullmatch(shift_end) is None:
+        fail(400, "El horario no es válido.")
     dates = sorted({item for item in body.dates if len(item) == 10 and item[4] == "-" and item[7] == "-"})
+    day_hours = {}
+    for day, hours in (body.dayHours or {}).items():
+        if len(day) != 10 or day[4] != "-" or day[7] != "-":
+            continue
+        start = hours.start.strip()
+        end = hours.end.strip()
+        if TIME_PATTERN.fullmatch(start) is None or TIME_PATTERN.fullmatch(end) is None:
+            continue
+        day_hours[day] = {"start": start, "end": end}
+    payload = json.dumps(day_hours, ensure_ascii=True, sort_keys=True)
     row = db.query(StaffScheduleRow).filter(StaffScheduleRow.user_id == person.id).one_or_none()
     if row is None:
-        row = StaffScheduleRow(user_id=person.id, mode=mode, dates=",".join(dates))
+        row = StaffScheduleRow(
+            user_id=person.id,
+            mode=mode,
+            dates=",".join(dates),
+            shift_start=shift_start,
+            shift_end=shift_end,
+            day_hours=payload,
+        )
         db.add(row)
     else:
         row.mode = mode
         row.dates = ",".join(dates)
+        row.shift_start = shift_start
+        row.shift_end = shift_end
+        row.day_hours = payload
     db.commit()
     db.refresh(row)
     return staff_schedule_out(row)
@@ -1015,7 +1041,28 @@ def save_staff_schedule(
 
 def staff_schedule_out(row: StaffScheduleRow) -> StaffScheduleOut:
     dates = [item for item in (row.dates or "").split(",") if item]
-    return StaffScheduleOut(userId=str(row.user_id), mode=row.mode, dates=dates)
+    day_hours: dict[str, StaffDayHours] = {}
+    try:
+        raw = json.loads(row.day_hours or "{}")
+    except json.JSONDecodeError:
+        raw = {}
+    if isinstance(raw, dict):
+        for day, hours in raw.items():
+            if not isinstance(hours, dict):
+                continue
+            start = str(hours.get("start", "")).strip()
+            end = str(hours.get("end", "")).strip()
+            if TIME_PATTERN.fullmatch(start) is None or TIME_PATTERN.fullmatch(end) is None:
+                continue
+            day_hours[str(day)] = StaffDayHours(start=start, end=end)
+    return StaffScheduleOut(
+        userId=str(row.user_id),
+        mode=row.mode,
+        dates=dates,
+        shiftStart=row.shift_start or "09:00",
+        shiftEnd=row.shift_end or "18:00",
+        dayHours=day_hours,
+    )
 
 
 @router.get("/assignments", response_model=list[AssignmentOut])

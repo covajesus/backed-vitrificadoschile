@@ -193,6 +193,9 @@ class StaffScheduleRow(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), unique=True)
     mode: Mapped[str] = mapped_column(String(20), default="weekdays")
     dates: Mapped[str] = mapped_column(String(4000), default="")
+    shift_start: Mapped[str] = mapped_column(String(5), default="09:00")
+    shift_end: Mapped[str] = mapped_column(String(5), default="18:00")
+    day_hours: Mapped[str] = mapped_column(String(8000), default="{}")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
 

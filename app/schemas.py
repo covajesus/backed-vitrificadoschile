@@ -224,15 +224,26 @@ class CrewBody(BaseModel):
     members: list[CrewMemberBody] = []
 
 
+class StaffDayHours(BaseModel):
+    start: str
+    end: str
+
+
 class StaffScheduleBody(BaseModel):
     mode: str
     dates: list[str] = []
+    shiftStart: str = "09:00"
+    shiftEnd: str = "18:00"
+    dayHours: dict[str, StaffDayHours] = {}
 
 
 class StaffScheduleOut(BaseModel):
     userId: str
     mode: str
     dates: list[str] = []
+    shiftStart: str = "09:00"
+    shiftEnd: str = "18:00"
+    dayHours: dict[str, StaffDayHours] = {}
 
 
 class AssignmentOut(BaseModel):

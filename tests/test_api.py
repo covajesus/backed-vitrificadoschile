@@ -1401,20 +1401,34 @@ def test_staff_schedule_saves_the_month_without_a_work() -> None:
     headers = admin_headers(api)
     accounts = api.get("/api/accounts", headers=headers).json()
     lead = next(item for item in accounts if item["email"] == "lead.worker@vitrificados.local")
-    saved = api.put(f"/api/staff-schedules/{lead['id']}", headers=headers, json={"mode": "weekdays", "dates": []})
+    saved = api.put(
+        f"/api/staff-schedules/{lead['id']}",
+        headers=headers,
+        json={
+            "mode": "weekdays",
+            "dates": [],
+            "shiftStart": "09:00",
+            "shiftEnd": "18:00",
+            "dayHours": {"2026-10-06": {"start": "10:00", "end": "14:00"}},
+        },
+    )
     assert saved.status_code == 200
     assert saved.json()["mode"] == "weekdays"
     assert saved.json()["userId"] == lead["id"]
+    assert saved.json()["shiftStart"] == "09:00"
+    assert saved.json()["shiftEnd"] == "18:00"
+    assert saved.json()["dayHours"]["2026-10-06"] == {"start": "10:00", "end": "14:00"}
     listed = api.get("/api/staff-schedules", headers=headers)
     assert listed.status_code == 200
     assert any(item["userId"] == lead["id"] and item["mode"] == "weekdays" for item in listed.json())
     manual = api.put(
         f"/api/staff-schedules/{lead['id']}",
         headers=headers,
-        json={"mode": "manual", "dates": ["2026-10-03", "bad"]},
+        json={"mode": "manual", "dates": ["2026-10-03", "bad"], "shiftStart": "08:30", "shiftEnd": "17:30"},
     )
     assert manual.status_code == 200
     assert manual.json()["dates"] == ["2026-10-03"]
+    assert manual.json()["shiftStart"] == "08:30"
     rejected = api.put(f"/api/staff-schedules/{lead['id']}", headers=headers, json={"mode": "weekend", "dates": []})
     assert rejected.status_code == 400
 

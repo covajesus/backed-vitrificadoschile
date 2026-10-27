@@ -271,6 +271,9 @@ def create_app(database_url: str | None = None, secret: str = SECRET) -> FastAPI
     ensure_measure_columns(engine)
     ensure_optional_email(engine)
     ensure_decimal_quantity(engine)
+    ensure_column(engine, "staff_schedules", "shift_start", "shift_start VARCHAR(5) NOT NULL DEFAULT '09:00'")
+    ensure_column(engine, "staff_schedules", "shift_end", "shift_end VARCHAR(5) NOT NULL DEFAULT '18:00'")
+    ensure_column(engine, "staff_schedules", "day_hours", "day_hours VARCHAR(8000) NOT NULL DEFAULT '{}'")
     if database_url.startswith("sqlite"):
         with engine.begin() as connection:
             connection.execute(text("CREATE INDEX IF NOT EXISTS ix_time_clocks_work_date ON time_clocks (work_id, arrive_date)"))
