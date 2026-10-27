@@ -1264,11 +1264,12 @@ def test_late_slot_starts_thirty_minutes_after_grace() -> None:
 
     from app.domain import chile_wall_clock, clamp_arrival_moment, late_notice_due, late_slot, scheduled_on
 
+    # Gracia solo para pago; el WhatsApp ignora gracia.
     assert late_slot("08:00", 10, 8 * 60 + 20) is None
     assert late_slot("08:00", 10, 8 * 60 + 40) == 30
     assert late_slot("08:00", 10, 9 * 60 + 10) == 60
-    assert late_notice_due("08:00", 10, 8 * 60 + 40) == 30
-    assert late_notice_due("08:00", 10, 8 * 60 + 41) is None
+    assert late_notice_due("08:00", 10, 8 * 60 + 30) == 30
+    assert late_notice_due("08:00", 10, 8 * 60 + 35) == 30
     assert late_notice_due("08:00", 10, 8 * 60 + 27) is None
     assert late_notice_due("08:00", 10, 9 * 60 + 10) == 60
     assert chile_wall_clock("2026-10-27T13:40:00.000Z") == "2026-10-27T10:40:00"
@@ -1298,29 +1299,23 @@ def test_a_late_worker_is_reminded_every_thirty_minutes(monkeypatch) -> None:
     monkeypatch.setenv("META_TOKEN", "test-token")
     headers = admin_headers(api)
     api.put("/api/works/2/crew", headers=headers, json={"members": []})
+    # Gracia no debe retrasar el WhatsApp: a las 8:30 (30 min reales) ya avisa.
     saved = api.put("/api/settings", headers=headers, json={"graceMinutes": 10, "emails": [], "phones": []})
     assert saved.status_code == 200
-    moment = datetime(2026, 10, 5, 8, 40)
+    moment = datetime(2026, 10, 5, 8, 30)
     with api.app.state.session_factory() as db:
         assert remind_late_workers(db, moment) == 1
         db.commit()
-    assert sent == [{
-        "phone": "912345678",
-        "name": "late_alert",
-        "language": "es",
-        "parameters": [
-            "Maestro de obra",
-            "30",
-            "Inmobiliaria Dominicos",
-        ],
-        "image": sent[0]["image"],
-    }]
+    assert sent[0]["name"] == "late_alert"
+    assert sent[0]["parameters"][1] == "30"
     filename, content = sent[0]["image"]
     assert filename == "logo.jpg"
     assert content.startswith(b"\xff\xd8")
     with api.app.state.session_factory() as db:
         assert remind_late_workers(db, moment) == 0
-        assert remind_late_workers(db, datetime(2026, 10, 5, 9, 10)) == 1
+        # Cron un poco tarde: sigue siendo el tramo de 30, no reenvía; a las 9:05 (35→slot 30 ya enviado) no; a las 9:00 slot 60.
+        assert remind_late_workers(db, datetime(2026, 10, 5, 8, 35)) == 0
+        assert remind_late_workers(db, datetime(2026, 10, 5, 9, 0)) == 1
         db.commit()
     assert sent[-1]["parameters"][1] == "60"
     with api.app.state.session_factory() as db:

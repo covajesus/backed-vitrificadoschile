@@ -137,7 +137,19 @@ def client_ride_for(
     return None
 
 
+def late_minutes_now(shift_start: str, now_minutes: int) -> int | None:
+    """Minutos reales de atraso desde la hora de inicio/traslado (sin gracia)."""
+    start = minutes_of(shift_start)
+    if start is None:
+        return None
+    late = now_minutes - start
+    if late < 1:
+        return None
+    return late
+
+
 def late_slot(shift_start: str, grace_minutes: int, now_minutes: int) -> int | None:
+    """Tramos de 30 min para descuentos; la gracia solo afecta el cálculo de pago, no el WhatsApp."""
     start = minutes_of(shift_start)
     if start is None:
         return None
@@ -148,18 +160,16 @@ def late_slot(shift_start: str, grace_minutes: int, now_minutes: int) -> int | N
     return (late // 30) * 30
 
 
-def late_notice_due(shift_start: str, grace_minutes: int, now_minutes: int) -> int | None:
-    """Only the exact minute when a 30-minute late slot begins (Chile wall clock)."""
-    slot = late_slot(shift_start, grace_minutes, now_minutes)
-    if slot is None:
+def late_notice_due(shift_start: str, _grace_minutes: int, now_minutes: int) -> int | None:
+    """
+    WhatsApp de atraso: la gracia no aplica.
+    Avisa cada 30 min reales desde el inicio/traslado (30, 60, 90…).
+    Si el cron llega unos minutos tarde, igual dispara el tramo pendiente.
+    """
+    late = late_minutes_now(shift_start, now_minutes)
+    if late is None or late < 30:
         return None
-    start = minutes_of(shift_start)
-    if start is None:
-        return None
-    grace = grace_minutes if isinstance(grace_minutes, int) and grace_minutes > 0 else 0
-    if now_minutes != start + grace + slot:
-        return None
-    return slot
+    return (late // 30) * 30
 
 
 def work_error(

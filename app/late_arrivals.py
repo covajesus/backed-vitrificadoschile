@@ -6,14 +6,13 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.domain import client_ride_for, late_notice_due, scheduled_on
+from app.domain import client_ride_for, late_minutes_now, late_notice_due, scheduled_on
 from app.models import (
     ROLE_HELPER,
     ROLE_SITE_LEAD,
     STATUS_ACTIVE,
     STATUS_WORKING,
     LateNoticeRow,
-    SettingRow,
     TimeClockRow,
     UserRow,
     WorkRow,
@@ -46,8 +45,6 @@ def remind_late_workers(db: Session, now: datetime) -> int:
 
 
 def _remind(db: Session, now: datetime) -> int:
-    setting = db.get(SettingRow, 1)
-    grace = setting.grace_minutes if setting else 0
     today = now.date()
     today_iso = today.isoformat()
     now_minutes = now.hour * 60 + now.minute
@@ -83,7 +80,8 @@ def _remind(db: Session, now: datetime) -> int:
             continue
         ride = client_ride_for(ride_rows, work.id, person.id, today_iso)
         start = ride[0] if ride is not None else work.shift_start
-        slot = late_notice_due(start, grace, now_minutes)
+        # Gracia no aplica al cron de WhatsApp; el mensaje lleva los minutos reales de atraso.
+        slot = late_notice_due(start, 0, now_minutes)
         if slot is None or len((person.phone or "").strip()) < 8:
             continue
         already = db.query(LateNoticeRow).filter(
@@ -94,12 +92,13 @@ def _remind(db: Session, now: datetime) -> int:
         ).first()
         if already is not None:
             continue
-        label = work.client_name.strip() or work.name
+        minutes_late = late_minutes_now(start, now_minutes) or slot
+        label = (work.name or "").strip() or (work.client_name or "").strip() or "Obra"
         result = notify_late_arrival(
             phone=person.phone,
             worker_name=person.name,
             work_name=label,
-            minutes_late=slot,
+            minutes_late=minutes_late,
         )
         if not result.get("ok"):
             continue
