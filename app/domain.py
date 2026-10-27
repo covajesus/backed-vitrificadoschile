@@ -1,5 +1,5 @@
 import math
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from urllib.parse import quote
 
 WHATSAPP_PHONE = "56987654321"
@@ -282,7 +282,7 @@ def is_valid_national_id(value: str) -> bool:
     return digit == expected
 
 
-SITE_RADIUS_METERS = 50
+SITE_RADIUS_METERS = 150
 OFF_SITE_MESSAGE = "Usted no puede marcar puesto que no se encuentra en la ubicación del trabajo."
 
 
@@ -326,6 +326,7 @@ def arrival_block_reason(
     latitude: float | None,
     longitude: float | None,
     require_location: bool = True,
+    check_photo_day: bool = False,
 ) -> str | None:
     if not work_active:
         return "La obra no está activa."
@@ -335,9 +336,53 @@ def arrival_block_reason(
         return "Solo la dotación asignada puede marcar llegada en esta obra."
     if not photo_data_url.startswith("data:image/"):
         return "La fotografía es obligatoria."
+    if check_photo_day:
+        stale = photo_day_error(photo_data_url)
+        if stale:
+            return stale
     if require_location and (latitude is None or longitude is None or not math.isfinite(latitude) or not math.isfinite(longitude)):
         return "Activa el GPS para registrar la llegada."
     return None
+
+
+def chile_today() -> str:
+    try:
+        from zoneinfo import ZoneInfo
+
+        return datetime.now(ZoneInfo("America/Santiago")).strftime("%Y-%m-%d")
+    except Exception:
+        return (datetime.now(timezone.utc) - timedelta(hours=3)).strftime("%Y-%m-%d")
+
+
+def photo_day_error(photo_data_url: str) -> str | None:
+    """Reject JPEG EXIF dates from another Chile calendar day when metadata is present."""
+    taken = jpeg_exif_day(photo_data_url)
+    if taken is None:
+        return None
+    if taken != chile_today():
+        return "La fotografía debe ser de hoy. Toma una foto nueva de la casa o edificio de la obra."
+    return None
+
+
+def jpeg_exif_day(photo_data_url: str) -> str | None:
+    import base64
+    import re
+
+    marker = ";base64,"
+    if marker not in photo_data_url:
+        return None
+    try:
+        raw = base64.b64decode(photo_data_url.split(marker, 1)[1], validate=False)
+    except Exception:
+        return None
+    sample = raw[:256_000]
+    ascii_text = "".join(chr(byte) if 32 <= byte < 127 else " " for byte in sample)
+    match = re.search(r"DateTimeOriginal\s{0,8}(\d{4}):(\d{2}):(\d{2}) (\d{2}):(\d{2}):(\d{2})", ascii_text)
+    if match is None:
+        match = re.search(r"(\d{4}):(\d{2}):(\d{2}) (\d{2}):(\d{2}):(\d{2})", ascii_text)
+    if match is None:
+        return None
+    return f"{match.group(1)}-{match.group(2)}-{match.group(3)}"
 
 
 def task_block_error(start: str, end: str) -> str | None:
