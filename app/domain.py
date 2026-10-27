@@ -55,6 +55,23 @@ def chile_wall_clock(raw: str) -> str:
     return cleaned
 
 
+def clamp_arrival_moment(moment: str, shift_start: str) -> str:
+    """Early marks snap to shift start; no overtime before the jornada begins."""
+    if len(moment) < 16 or moment[10] != "T":
+        return moment
+    start = (shift_start or "").strip()[:5]
+    start_minutes = minutes_of(start)
+    if start_minutes is None:
+        return moment if len(moment) >= 19 else f"{moment[:16]}:00"
+    clock = moment[11:19] if len(moment) >= 19 else f"{moment[11:16]}:00"
+    clock_minutes = minutes_of(clock[:5])
+    if clock_minutes is None:
+        return f"{moment[:10]}T{clock}"
+    if clock_minutes < start_minutes:
+        return f"{moment[:10]}T{start}:00"
+    return f"{moment[:10]}T{clock}"
+
+
 WORK_DAY_MODES = {"weekdays", "weekend", "all", "except-sunday"}
 MODE_DAYS = {
     "weekdays": {1, 2, 3, 4, 5},

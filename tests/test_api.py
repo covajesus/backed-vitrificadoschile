@@ -170,6 +170,21 @@ def test_arrival_rejects_a_mark_away_from_the_site() -> None:
     assert "wa.me" in on_site.json()["whatsappHref"]
 
 
+def test_early_arrival_snaps_to_shift_start() -> None:
+    api = client()
+    headers = lead_headers(api)
+    marked = api.post("/api/arrivals", headers=headers, json={
+        "workId": "1",
+        "workerId": "2",
+        "at": "2026-10-03T06:30:00",
+        "latitude": -33.4,
+        "longitude": -70.5,
+        "photoDataUrl": PHOTO,
+    })
+    assert marked.status_code == 200
+    assert marked.json()["at"] == "2026-10-03T08:00:00"
+
+
 def test_a_client_ride_moves_the_late_clock_and_confirms_the_mark(monkeypatch) -> None:
     sent: list[dict] = []
 
@@ -1166,7 +1181,7 @@ def test_settings_store_many_emails_and_phones() -> None:
 def test_late_slot_starts_thirty_minutes_after_grace() -> None:
     from datetime import date
 
-    from app.domain import chile_wall_clock, late_notice_due, late_slot, scheduled_on
+    from app.domain import chile_wall_clock, clamp_arrival_moment, late_notice_due, late_slot, scheduled_on
 
     assert late_slot("08:00", 10, 8 * 60 + 20) is None
     assert late_slot("08:00", 10, 8 * 60 + 40) == 30
@@ -1177,6 +1192,8 @@ def test_late_slot_starts_thirty_minutes_after_grace() -> None:
     assert late_notice_due("08:00", 10, 9 * 60 + 10) == 60
     assert chile_wall_clock("2026-10-27T13:40:00.000Z") == "2026-10-27T10:40:00"
     assert chile_wall_clock("2026-10-27T10:40:00") == "2026-10-27T10:40:00"
+    assert clamp_arrival_moment("2026-10-27T06:30:00", "07:00") == "2026-10-27T07:00:00"
+    assert clamp_arrival_moment("2026-10-27T07:15:00", "07:00") == "2026-10-27T07:15:00"
     monday = date(2026, 10, 5)
     assert scheduled_on("weekdays", "", 0, set(), monday) is True
     assert scheduled_on("weekdays", "2026-10-05", 5, {"2026-10-05"}, monday) is False

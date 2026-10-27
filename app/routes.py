@@ -16,6 +16,7 @@ from app.domain import (
     OFF_SITE_MESSAGE,
     arrival_block_reason,
     chile_wall_clock,
+    clamp_arrival_moment,
     client_ride_for,
     minutes_of,
     on_site,
@@ -1262,6 +1263,8 @@ def register_arrival(
     site_longitude = ride[2] if ride is not None else work.longitude
     if not manual and (body.latitude is None or body.longitude is None or not on_site(site_latitude, site_longitude, body.latitude, body.longitude)):
         fail(400, OFF_SITE_MESSAGE if body.latitude is not None and body.longitude is not None else "Activa el GPS para registrar la llegada.")
+    shift_start = ride[0] if ride is not None else (work.shift_start or "")
+    moment = clamp_arrival_moment(moment, shift_start)
     location = f"{body.latitude},{body.longitude}" if body.latitude is not None and body.longitude is not None else ""
     row = TimeClockRow(
         work_id=work.id,
