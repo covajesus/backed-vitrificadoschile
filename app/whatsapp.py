@@ -503,7 +503,11 @@ def notify_scope_request(*, phone: str, maestro_name: str, work_name: str) -> di
         work_name.strip() or "Obra",
     ]
     try:
-        return send_template(phone, SCOPE_REQUEST_TEMPLATE, parameters, language="es")
+        logo = brand_logo()
+        sent = send_template(phone, SCOPE_REQUEST_TEMPLATE, parameters, image=logo, language="es")
+        if logo is not None and not sent.get("ok"):
+            sent = send_template(phone, SCOPE_REQUEST_TEMPLATE, parameters, language="es")
+        return sent
     except Exception as error:
         return {"ok": False, "error": str(error)}
 
