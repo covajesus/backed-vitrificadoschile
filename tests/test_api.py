@@ -883,7 +883,7 @@ def test_contract_pdf_lists_the_agreed_charges() -> None:
         shift_end="17:00",
         work_days="weekdays",
         starts_on="2026-10-05",
-        lines=[("Retape", None, 200, "un")],
+        lines=[("Retape", None, 200, "un", False), ("Balastro", None, 4, "un", False)],
     )
     updated = contract_pdf(
         updated=True,
@@ -902,6 +902,8 @@ def test_contract_pdf_lists_the_agreed_charges() -> None:
     assert "Cliente Norte" in initial_text
     assert "Retape" in initial_text
     assert "200 (un)" in initial_text
+    assert "Balastro" in initial_text
+    assert "Sin partidas con cantidad" not in initial_text
     assert "5 de Octubre de 2026" in initial_text
     assert "El inicio de los trabajos en el inmueble importa aceptación" in initial_text
     assert "firman dos ejemplares" not in initial_text
@@ -918,8 +920,8 @@ def test_contract_lines_use_one_line_each() -> None:
         ("Retape", None, 12, "m²", True),
         ("Balastro", None, 4, "un", False),
     ])
-    assert marked == "\u2028- Retape: 12 (m²) (Evaluar: Si)"
-    assert "Balastro" not in marked
+    assert "Retape: 12 (m²) (Evaluar: Si)" in marked
+    assert "Balastro: 4 (un)" in marked
     assert format_contract_lines([]) == "Sin partidas con cantidad"
     assert format_assignment_partidas([
         ("Pulido y Vitrificado - Residencial", 156, "m²", False),

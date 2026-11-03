@@ -434,7 +434,8 @@ def contract_pdf(
     pdf.set_line_width(0.3)
     rule = pdf.get_y()
     pdf.line(pdf.l_margin, rule, pdf.w - pdf.r_margin, rule)
-    shown_lines = [line for line in lines if line_marked(line) is not False]
+    # Contrato: toda partida con cantidad (Evaluar solo añade la marca en el texto).
+    shown_lines = [line for line in lines if line_measure(line)[2] > 0 or line_marked(line)]
     if not shown_lines:
         charge_row(pdf, font, "Sin partidas con cantidad.", "-")
     for line in shown_lines:

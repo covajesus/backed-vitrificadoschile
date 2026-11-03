@@ -175,11 +175,12 @@ def format_ride_dates(dates: list[str] | str) -> str:
 def format_contract_lines(lines: list[tuple]) -> str:
     rows = []
     for line in lines:
-        if len(line) > 4 and not line[4]:
-            continue
         name, quantity = line[0], line[2]
         unit = line[3] if len(line) > 3 else ""
-        suffix = " (Evaluar: Si)" if len(line) > 4 and line[4] else ""
+        marked = len(line) > 4 and bool(line[4])
+        if quantity == 0 and not marked:
+            continue
+        suffix = " (Evaluar: Si)" if marked else ""
         rows.append(f"- {name}: {quantity_with_unit(quantity, unit)}{suffix}.")
     if not rows:
         return "Sin partidas con cantidad"

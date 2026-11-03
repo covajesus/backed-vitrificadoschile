@@ -298,9 +298,9 @@ def deliver_work_contract(
         emails, phones = admin_notice_contacts(db)
         company_phone = phones[0] if phones else ""
         current = quantities if quantities is not None else charge_quantities(db, work.id)
-        lines = client_contract_lines(
-            contract_lines(db, current, previous if updated else None, charge_flags(db, work.id))
-        )
+        raw = contract_lines(db, current, previous if updated else None, charge_flags(db, work.id))
+        # Contrato nuevo: todas las partidas con cantidad. En actualizaciones, Evaluar filtra el aviso.
+        lines = client_contract_lines(raw) if updated else [line for line in raw if line[2] > 0 or line[4]]
         address = shorten_address(work.address) or work.address
         pdf = contract_pdf(
             updated=updated,
