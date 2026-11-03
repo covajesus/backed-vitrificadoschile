@@ -87,6 +87,7 @@ from app.schemas import (
     ChargeItemOut,
     ChargeOrderBody,
     CrewBody,
+    CrewReplaceOut,
     DeductionBody,
     DeductionOut,
     RoleBody,
@@ -1106,19 +1107,22 @@ def assignment_address(work: WorkRow) -> str:
     return address
 
 
-def deliver_assignment_notice(db: Session, work: WorkRow, user_ids: list[int]) -> None:
+def deliver_assignment_notice(db: Session, work: WorkRow, user_ids: list[int]) -> str:
     if not user_ids:
-        return
+        return "Asignación guardada."
     try:
         lines = contract_lines(db, charge_quantities(db, work.id), None, charge_flags(db, work.id))
         partidas = format_assignment_partidas([(name, quantity, unit, marked) for name, _previous, quantity, unit, marked in lines])
         address = assignment_address(work)
         label = (work.client_name or "").strip() or work.name
+        sent = 0
+        failed = 0
+        last_error = ""
         for user_id in user_ids:
             person = db.get(UserRow, user_id)
             if person is None:
                 continue
-            notify_worker_assignment(
+            result = notify_worker_assignment(
                 phone=person.phone,
                 worker_name=person.name,
                 work_name=label,
@@ -1133,24 +1137,42 @@ def deliver_assignment_notice(db: Session, work: WorkRow, user_ids: list[int]) -
                 work_days=work.work_days or "",
                 schedule_dates=work.schedule_dates or "",
             )
-    except Exception:
-        return
+            if result.get("ok"):
+                sent += 1
+            else:
+                failed += 1
+                last_error = str(result.get("error") or "No se pudo enviar el WhatsApp.")
+        if sent and not failed:
+            return "Asignación guardada. Se envió el WhatsApp."
+        if sent and failed:
+            return f"Asignación guardada. Se envió el WhatsApp a {sent} persona(s). {last_error}"
+        if failed:
+            return f"Asignación guardada. {last_error}"
+        return "Asignación guardada."
+    except Exception as error:
+        return f"Asignación guardada. No se pudo enviar el WhatsApp. {error}"
 
 
-@router.put("/works/{work_id}/crew", response_model=list[AssignmentOut])
+@router.put("/works/{work_id}/crew", response_model=CrewReplaceOut)
 def replace_crew(
     work_id: str,
     body: CrewBody,
     _: AccountRow = Depends(require_admin),
     db: Session = Depends(get_db),
-) -> list[AssignmentOut]:
+) -> CrewReplaceOut:
     work_key = num(work_id)
     work = db.get(WorkRow, work_key)
     if work is None:
         fail(404, "Obra no encontrada.")
+    previous_rows = db.query(WorkScheduleRow).filter(WorkScheduleRow.work_id == work_key, WorkScheduleRow.deleted_at.is_(None)).all()
     previous_crew = {
-        row.user_id
-        for row in db.query(WorkScheduleRow).filter(WorkScheduleRow.work_id == work_key, WorkScheduleRow.deleted_at.is_(None)).all()
+        row.user_id: (
+            row.start_date or "",
+            int(row.day_count or 0),
+            tuple(part for part in (row.excluded_dates or "").split(",") if part),
+            int(row.role_id or 0),
+        )
+        for row in previous_rows
     }
     members = body.members or [CrewMemberBody(workerId=item) for item in body.workerIds]
     unique: dict[int, CrewMemberBody] = {}
@@ -1195,17 +1217,28 @@ def replace_crew(
         )
         for user_id, member in unique.items()
     )
-    work_name = work.client_name or work.names
+    work_name = work.client_name or work.name
     added = [user_id for user_id in unique if user_id not in previous_crew]
+    notify_ids: list[int] = []
+    for user_id, member in unique.items():
+        current = (
+            member.startDate,
+            int(member.dayCount or 0),
+            tuple(member.excludedDates),
+            int(member.roleId or 0),
+        )
+        previous = previous_crew.get(user_id)
+        if previous is None or previous != current:
+            notify_ids.append(user_id)
     for user_id in added:
         add_alert(db, user_id, "assigned", f"Te agregaron a la obra {work_name}.")
     for user_id in previous_crew:
         if user_id not in unique:
             add_alert(db, user_id, "removed", f"Te quitaron de la obra {work_name}.")
     db.commit()
-    deliver_assignment_notice(db, work, added)
+    notice = deliver_assignment_notice(db, work, notify_ids)
     rows = db.query(WorkScheduleRow).filter(WorkScheduleRow.work_id == work_key, WorkScheduleRow.deleted_at.is_(None)).all()
-    return [assignment_out(row) for row in rows]
+    return CrewReplaceOut(assignments=[assignment_out(row) for row in rows], notice=notice)
 
 
 @router.get("/arrivals", response_model=list[ArrivalOut])

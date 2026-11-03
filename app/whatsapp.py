@@ -154,7 +154,7 @@ def format_partida_changes(lines: list[tuple]) -> str:
 def map_link(latitude: float, longitude: float) -> str:
     if not math.isfinite(latitude) or not math.isfinite(longitude):
         return "-"
-    return f"https://www.google.com/maps/search/?api=1&query={latitude},{longitude}"
+    return f"https://maps.google.com/?q={latitude},{longitude}"
 
 
 def format_ride_dates(dates: list[str] | str) -> str:

@@ -255,6 +255,11 @@ class AssignmentOut(BaseModel):
     roleId: int = 0
 
 
+class CrewReplaceOut(BaseModel):
+    assignments: list[AssignmentOut]
+    notice: str = ""
+
+
 class ArrivalBody(BaseModel):
     workId: str
     workerId: str

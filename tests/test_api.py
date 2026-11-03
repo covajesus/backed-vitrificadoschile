@@ -360,7 +360,7 @@ def test_assigning_a_site_lead_lists_them_on_the_work() -> None:
         "members": [{"workerId": "2", "startDate": "2026-10-05", "dayCount": 5}],
     })
     assert saved.status_code == 200
-    assert saved.json() == [{"workId": "1", "workerId": "2", "startDate": "2026-10-05", "dayCount": 5, "excludedDates": [], "roleId": 2}]
+    assert saved.json()["assignments"] == [{"workId": "1", "workerId": "2", "startDate": "2026-10-05", "dayCount": 5, "excludedDates": [], "roleId": 2}]
     listed = api.get("/api/assignments", headers=headers)
     assert listed.status_code == 200
     match = [item for item in listed.json() if item["workId"] == "1" and item["workerId"] == "2"]
@@ -369,7 +369,7 @@ def test_assigning_a_site_lead_lists_them_on_the_work() -> None:
         "members": [{"workerId": "2", "startDate": "2026-10-05", "dayCount": 5, "excludedDates": ["2026-10-06"]}],
     })
     assert removed.status_code == 200
-    assert removed.json()[0]["excludedDates"] == ["2026-10-06"]
+    assert removed.json()["assignments"][0]["excludedDates"] == ["2026-10-06"]
 
 
 def test_assigning_a_worker_sends_the_work_summary(monkeypatch) -> None:
@@ -406,7 +406,7 @@ def test_assigning_a_worker_sends_the_work_summary(monkeypatch) -> None:
             "08:00 a 17:00",
             "24/10/2026 al 26/10/2026, 3 días",
             "Av. Apoquindo 4500, Las Condes",
-            "https://www.google.com/maps/search/?api=1&query=-33.4,-70.5",
+            "https://maps.google.com/?q=-33.4,-70.5",
             "Retape 12",
             "El piso ya está lijado.",
             "Tocar el timbre del conserje.",
@@ -417,11 +417,19 @@ def test_assigning_a_worker_sends_the_work_summary(monkeypatch) -> None:
     filename, content = sent[0]["image"]
     assert filename == "logo.jpg"
     assert content.startswith(b"\xff\xd8")
+    assert saved.json()["notice"] == "Asignación guardada. Se envió el WhatsApp."
     again = api.put("/api/works/1/crew", headers=headers, json={
         "members": [{"workerId": "2", "startDate": "2026-10-06", "dayCount": 4}],
     })
     assert again.status_code == 200
-    assert len(sent) == 1
+    assert len(sent) == 2
+    assert again.json()["notice"] == "Asignación guardada. Se envió el WhatsApp."
+    same = api.put("/api/works/1/crew", headers=headers, json={
+        "members": [{"workerId": "2", "startDate": "2026-10-06", "dayCount": 4}],
+    })
+    assert same.status_code == 200
+    assert len(sent) == 2
+    assert same.json()["notice"] == "Asignación guardada."
 
 
 def test_roles_statuses_and_schedules_are_numeric() -> None:
