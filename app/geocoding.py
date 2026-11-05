@@ -17,9 +17,46 @@ class Place:
         self.longitude = longitude
 
 
+# Soft bias around Gran Santiago when the query does not name another city/region.
+SANTIAGO_VIEWBOX = "-70.98,-33.28,-70.40,-33.72"
+SANTIAGO_BOUNDS = "-33.72,-70.98|-33.28,-70.40"
+
+
 def expand_street_query(query: str) -> str:
     text = re.sub(r"(?i)(?<!\w)av(?:da)?\.(?=\w)", "Avenida ", query)
     return re.sub(r"(?i)(?<!\w)av(?:da)?\.?(?!\w)", "Avenida", text)
+
+
+def house_number(query: str) -> str:
+    head = query.split(",", 1)[0].strip()
+    match = re.search(r"(?i)(?:^|\s)(\d{1,5}[A-Za-z]?)$", head)
+    return match.group(1) if match else ""
+
+
+def names_other_region(query: str) -> bool:
+    lowered = query.casefold()
+    if "metropolitana" in lowered or "santiago" in lowered:
+        return False
+    markers = (
+        "arica", "iquique", "antofagasta", "copiap", "la serena", "coquimbo",
+        "valpara", "viña", "vina del mar", "rancagua", "talca", "chillán", "chillan",
+        "concepci", "talcahuano", "temuco", "valdivia", "osorno", "puerto montt",
+        "coyhaique", "punta arenas", "biobío", "biobio", "ñuble", "nuble",
+        "araucanía", "araucania", "los lagos", "los ríos", "los rios", "magallanes",
+        "atacama", "tarapac", "aisen", "aysén", "aysen",
+    )
+    return any(marker in lowered for marker in markers)
+
+
+def with_santiago_bias(query: str) -> str:
+    if names_other_region(query):
+        return query
+    lowered = query.casefold()
+    if "santiago" in lowered or "metropolitana" in lowered:
+        return query
+    if "," in query:
+        return f"{query}, Chile"
+    return f"{query}, Santiago, Chile"
 
 
 def suggest_addresses(address: str) -> list[Place]:
@@ -30,8 +67,8 @@ def suggest_addresses(address: str) -> list[Place]:
     if key:
         found = google_suggestions(query, key)
         if found:
-            return found
-    return nominatim_suggestions(query)
+            return rank_places(query, found)
+    return rank_places(query, nominatim_suggestions(query))
 
 
 def places_from_google(payload: object) -> list[Place]:
@@ -39,7 +76,7 @@ def places_from_google(payload: object) -> list[Place]:
     if not isinstance(results, list):
         return []
     places: list[Place] = []
-    for item in results[:5]:
+    for item in results[:8]:
         if not isinstance(item, dict):
             continue
         geometry = item.get("geometry")
@@ -57,7 +94,7 @@ def places_from_nominatim(payload: object) -> list[Place]:
     if not isinstance(payload, list):
         return []
     places: list[Place] = []
-    for item in payload[:5]:
+    for item in payload[:8]:
         if not isinstance(item, dict):
             continue
         label = nominatim_label(item)
@@ -195,6 +232,65 @@ def text(value: object) -> str:
     return value.strip() if isinstance(value, str) else ""
 
 
+def keep_house_number(place: Place, query: str) -> Place:
+    number = house_number(query)
+    if not number or re.search(rf"(?i)\b{re.escape(number)}\b", place.label):
+        return place
+    street, _, rest = place.label.partition(",")
+    street = street.strip()
+    if not street or street[-1].isdigit():
+        return place
+    query_street = re.sub(rf"(?i)\s*{re.escape(number)}\s*$", "", query.split(",", 1)[0]).strip()
+    if query_street and query_street.casefold() not in street.casefold() and street.casefold() not in query_street.casefold():
+        return place
+    labeled = f"{street} {number}"
+    if rest.strip():
+        labeled = f"{labeled}, {rest.strip()}"
+    return Place(labeled, place.latitude, place.longitude)
+
+
+def place_score(query: str, place: Place) -> tuple[int, int, str]:
+    label = place.label.casefold()
+    number = house_number(query).casefold()
+    score = 0
+    if "región metropolitana" in label or "region metropolitana" in label:
+        score += 40
+    if "santiago" in label:
+        score += 10
+    if number and re.search(rf"\b{re.escape(number)}\b", label):
+        score += 30
+    street = query.split(",", 1)[0]
+    street = re.sub(rf"(?i)\s*{re.escape(number)}\s*$", "", street).strip().casefold() if number else street.casefold()
+    if street and street in label:
+        score += 20
+    # Prefer points inside a loose Santiago box.
+    if -33.75 <= place.latitude <= -33.25 and -71.05 <= place.longitude <= -70.35:
+        score += 25
+    return (-score, len(place.label), place.label.casefold())
+
+
+def dedupe_places(places: list[Place]) -> list[Place]:
+    seen: set[str] = set()
+    unique: list[Place] = []
+    for place in places:
+        key = re.sub(r"\s+", " ", place.label.casefold())
+        key = re.sub(r"[^\wáéíóúñü ,]", "", key)
+        coord = f"{round(place.latitude, 5)},{round(place.longitude, 5)}"
+        marker = f"{key}|{coord}"
+        if marker in seen or key in seen:
+            continue
+        seen.add(marker)
+        seen.add(key)
+        unique.append(place)
+    return unique
+
+
+def rank_places(query: str, places: list[Place]) -> list[Place]:
+    numbered = [keep_house_number(place, query) for place in places]
+    ordered = sorted(dedupe_places(numbered), key=lambda place: place_score(query, place))
+    return ordered[:5]
+
+
 def locate_address(address: str) -> tuple[float, float]:
     query = expand_street_query(address.strip())
     if len(query) < 5:
@@ -222,47 +318,74 @@ def google_location(address: str, key: str) -> tuple[float, float]:
     places = google_suggestions(address, key)
     if not places:
         raise AddressNotFound("No se encontró la dirección en Google Maps.")
-    return places[0].latitude, places[0].longitude
+    ranked = rank_places(address, places)
+    return ranked[0].latitude, ranked[0].longitude
 
 
 def google_suggestions(address: str, key: str) -> list[Place]:
-    params = urllib.parse.urlencode({
-        "address": address,
-        "region": "cl",
-        "components": "country:CL",
-        "language": "es",
-        "key": key,
-    })
-    try:
-        payload = fetch_json(f"https://maps.googleapis.com/maps/api/geocode/json?{params}")
-    except AddressNotFound:
-        return []
-    return places_from_google(payload)
+    queries = [address]
+    biased = with_santiago_bias(address)
+    if biased != address:
+        queries.append(biased)
+    places: list[Place] = []
+    for query in queries:
+        params = {
+            "address": query,
+            "region": "cl",
+            "components": "country:CL",
+            "language": "es",
+            "key": key,
+        }
+        if not names_other_region(address):
+            params["bounds"] = SANTIAGO_BOUNDS
+        encoded = urllib.parse.urlencode(params)
+        try:
+            payload = fetch_json(f"https://maps.googleapis.com/maps/api/geocode/json?{encoded}")
+        except AddressNotFound:
+            continue
+        places.extend(places_from_google(payload))
+    return places
 
 
 def nominatim_location(address: str) -> tuple[float, float]:
     places = nominatim_suggestions(address)
     if not places:
         raise AddressNotFound("No se encontró la dirección en Google Maps.")
-    return places[0].latitude, places[0].longitude
+    ranked = rank_places(address, places)
+    return ranked[0].latitude, ranked[0].longitude
 
 
-def nominatim_suggestions(address: str) -> list[Place]:
-    params = urllib.parse.urlencode({
+def nominatim_search(query: str, *, viewbox: str | None = None) -> list[Place]:
+    params: dict[str, str] = {
         "format": "jsonv2",
-        "limit": 5,
+        "limit": "8",
         "countrycodes": "cl",
-        "addressdetails": 1,
-        "q": address,
-    })
+        "addressdetails": "1",
+        "q": query,
+    }
+    if viewbox:
+        params["viewbox"] = viewbox
+        params["bounded"] = "0"
+    encoded = urllib.parse.urlencode(params)
     try:
         payload = fetch_json(
-            f"https://nominatim.openstreetmap.org/search?{params}",
+            f"https://nominatim.openstreetmap.org/search?{encoded}",
             headers={"User-Agent": "VitrificadosChile/1.0"},
         )
     except AddressNotFound:
         return []
     return places_from_nominatim(payload)
+
+
+def nominatim_suggestions(address: str) -> list[Place]:
+    places: list[Place] = []
+    if not names_other_region(address):
+        places.extend(nominatim_search(address, viewbox=SANTIAGO_VIEWBOX))
+        biased = with_santiago_bias(address)
+        if biased != address:
+            places.extend(nominatim_search(biased, viewbox=SANTIAGO_VIEWBOX))
+    places.extend(nominatim_search(address))
+    return places
 
 
 def fetch_json(url: str, headers: dict[str, str] | None = None):
