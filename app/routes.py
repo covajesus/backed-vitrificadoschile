@@ -15,6 +15,7 @@ from app.deps import current_account, get_db, require_admin
 from app.domain import (
     OFF_SITE_MESSAGE,
     arrival_block_reason,
+    chile_today,
     chile_wall_clock,
     clamp_arrival_moment,
     client_ride_for,
@@ -1301,6 +1302,8 @@ def register_arrival(
     moment = chile_wall_clock(body.at)
     if len(moment) < 16 or moment[4] != "-" or moment[7] != "-" or moment[10] != "T":
         fail(400, "Indica el día y la hora.")
+    if not manual and moment[:10] < chile_today():
+        fail(400, "Solo el administrador puede marcar hacia atrás.")
     prior = db.query(TimeClockRow).filter(
         TimeClockRow.work_id == work.id,
         TimeClockRow.user_id == person.id,

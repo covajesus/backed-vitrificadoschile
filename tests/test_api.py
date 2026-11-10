@@ -195,6 +195,21 @@ def test_arrival_rejects_a_mark_away_from_the_site() -> None:
     assert "wa.me" in on_site.json()["whatsappHref"]
 
 
+def test_worker_cannot_mark_a_past_day() -> None:
+    api = client()
+    headers = lead_headers(api)
+    response = api.post("/api/arrivals", headers=headers, json={
+        "workId": "1",
+        "workerId": "2",
+        "at": "2020-01-02T08:00:00",
+        "latitude": -33.4,
+        "longitude": -70.5,
+        "photoDataUrl": PHOTO,
+    })
+    assert response.status_code == 400
+    assert "administrador" in response.json()["detail"].lower()
+
+
 def test_exit_mark_allows_missing_gps() -> None:
     api = client()
     headers = lead_headers(api)
