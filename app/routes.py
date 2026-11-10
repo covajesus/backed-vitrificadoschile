@@ -1321,6 +1321,7 @@ def register_arrival(
         require_location=not manual and not exit_mark,
         require_photo=not manual,
         check_photo_day=not manual,
+        require_assignment=not manual,
     )
     if message:
         fail(400, message)

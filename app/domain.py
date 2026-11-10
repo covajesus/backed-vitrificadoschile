@@ -370,12 +370,13 @@ def arrival_block_reason(
     require_location: bool = True,
     require_photo: bool = True,
     check_photo_day: bool = False,
+    require_assignment: bool = True,
 ) -> str | None:
     if not work_active:
         return "La obra no está activa."
     if not worker_active:
         return "El trabajador no está activo."
-    if not assigned:
+    if require_assignment and not assigned:
         return "Solo la dotación asignada puede marcar llegada en esta obra."
     has_photo = photo_data_url.startswith("data:image/")
     if require_photo and not has_photo:

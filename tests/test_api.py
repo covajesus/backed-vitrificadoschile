@@ -170,6 +170,36 @@ def test_admin_arrival_allows_missing_photo() -> None:
     assert response.json()["at"].startswith("2026-10-04T09:15")
 
 
+def test_admin_can_mark_worker_on_unassigned_work() -> None:
+    from app.domain import chile_today
+
+    api = client()
+    headers = admin_headers(api)
+    # Helper (3) is assigned to work 1 in seed; mark them on work 2 without assignment.
+    response = api.post("/api/arrivals", headers=headers, json={
+        "workId": "2",
+        "workerId": "3",
+        "at": "2026-10-06T09:00:00",
+        "latitude": None,
+        "longitude": None,
+        "photoDataUrl": "",
+    })
+    assert response.status_code == 200
+    assert response.json()["workId"] == "2"
+    assert response.json()["workerId"] == "3"
+    helper = api.post("/api/auth/login", json={"email": "helper.worker@vitrificados.local", "password": "demo-site"})
+    denied = api.post("/api/arrivals", headers={"Authorization": f"Bearer {helper.json()['token']}"}, json={
+        "workId": "2",
+        "workerId": "3",
+        "at": f"{chile_today()}T09:05:00",
+        "latitude": -33.36,
+        "longitude": -70.73,
+        "photoDataUrl": PHOTO,
+    })
+    assert denied.status_code == 400
+    assert "dotación" in denied.json()["detail"].lower()
+
+
 def test_arrival_rejects_a_mark_away_from_the_site() -> None:
     api = client()
     headers = lead_headers(api)
