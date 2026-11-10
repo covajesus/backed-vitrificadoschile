@@ -1296,32 +1296,40 @@ def register_arrival(
         WorkScheduleRow.deleted_at.is_(None),
     ).first() is not None
     manual = account.rol_id == ROLE_ADMIN
-    message = arrival_block_reason(
-        work_active=work is not None and work.deleted_at is None and work.status in {"active", "working"},
-        worker_active=person is not None and person.active,
-        assigned=assigned,
-        photo_data_url=body.photoDataUrl,
-        latitude=body.latitude,
-        longitude=body.longitude,
-        require_location=not manual,
-        require_photo=not manual,
-        check_photo_day=not manual,
-    )
-    if message or work is None or person is None:
-        fail(400, message or "No se pudo registrar la llegada.")
+    if work is None or person is None:
+        fail(400, "No se pudo registrar la llegada.")
     moment = chile_wall_clock(body.at)
     if len(moment) < 16 or moment[4] != "-" or moment[7] != "-" or moment[10] != "T":
         fail(400, "Indica el día y la hora.")
-    ride = client_ride_for(stored_client_rides(db), work.id, person.id, moment[:10])
-    site_latitude = ride[1] if ride is not None else work.latitude
-    site_longitude = ride[2] if ride is not None else work.longitude
-    if not manual and (body.latitude is None or body.longitude is None or not on_site(site_latitude, site_longitude, body.latitude, body.longitude)):
-        fail(400, OFF_SITE_MESSAGE if body.latitude is not None and body.longitude is not None else "Activa el GPS para registrar la llegada.")
     prior = db.query(TimeClockRow).filter(
         TimeClockRow.work_id == work.id,
         TimeClockRow.user_id == person.id,
         TimeClockRow.arrive_date == moment[:10],
     ).all()
+    # Segunda marca del día (salida): no exige GPS ni geocerca.
+    exit_mark = len(prior) > 0
+    message = arrival_block_reason(
+        work_active=work.deleted_at is None and work.status in {"active", "working"},
+        worker_active=person.active,
+        assigned=assigned,
+        photo_data_url=body.photoDataUrl,
+        latitude=body.latitude,
+        longitude=body.longitude,
+        require_location=not manual and not exit_mark,
+        require_photo=not manual,
+        check_photo_day=not manual,
+    )
+    if message:
+        fail(400, message)
+    ride = client_ride_for(stored_client_rides(db), work.id, person.id, moment[:10])
+    site_latitude = ride[1] if ride is not None else work.latitude
+    site_longitude = ride[2] if ride is not None else work.longitude
+    if not manual and not exit_mark and (
+        body.latitude is None
+        or body.longitude is None
+        or not on_site(site_latitude, site_longitude, body.latitude, body.longitude)
+    ):
+        fail(400, OFF_SITE_MESSAGE if body.latitude is not None and body.longitude is not None else "Activa el GPS para registrar la llegada.")
     if not manual and ride is not None and prior:
         fail(400, "Ya marcaste llegada hoy con el traslado. No hace falta marcar en la obra.")
     note = (body.note or "").strip()

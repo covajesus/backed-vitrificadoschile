@@ -195,6 +195,30 @@ def test_arrival_rejects_a_mark_away_from_the_site() -> None:
     assert "wa.me" in on_site.json()["whatsappHref"]
 
 
+def test_exit_mark_allows_missing_gps() -> None:
+    api = client()
+    headers = lead_headers(api)
+    entry = api.post("/api/arrivals", headers=headers, json={
+        "workId": "1",
+        "workerId": "2",
+        "at": "2026-10-09T08:05:00",
+        "latitude": -33.4,
+        "longitude": -70.5,
+        "photoDataUrl": PHOTO,
+    })
+    assert entry.status_code == 200
+    exit_mark = api.post("/api/arrivals", headers=headers, json={
+        "workId": "1",
+        "workerId": "2",
+        "at": "2026-10-09T17:00:00",
+        "latitude": None,
+        "longitude": None,
+        "photoDataUrl": PHOTO,
+    })
+    assert exit_mark.status_code == 200
+    assert exit_mark.json()["at"].startswith("2026-10-09T17:00")
+
+
 def test_early_arrival_snaps_to_shift_start() -> None:
     api = client()
     headers = lead_headers(api)
