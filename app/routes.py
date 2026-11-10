@@ -586,7 +586,12 @@ def locate_work(body: LocateBody, _: AccountRow = Depends(require_admin)) -> Loc
 @router.post("/works/suggest", response_model=list[PlaceOut])
 def suggest_work(body: LocateBody, _: AccountRow = Depends(require_admin)) -> list[PlaceOut]:
     return [
-        PlaceOut(label=item.label, latitude=item.latitude, longitude=item.longitude)
+        PlaceOut(
+            label=item.label,
+            latitude=item.latitude,
+            longitude=item.longitude,
+            approximate=item.approximate,
+        )
         for item in suggest_addresses(body.address)
     ]
 

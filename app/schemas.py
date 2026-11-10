@@ -189,6 +189,7 @@ class PlaceOut(BaseModel):
     label: str
     latitude: float
     longitude: float
+    approximate: bool = False
 
 
 class WorkerBody(BaseModel):

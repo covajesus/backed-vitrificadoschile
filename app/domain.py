@@ -292,7 +292,8 @@ def is_valid_national_id(value: str) -> bool:
     return digit == expected
 
 
-SITE_RADIUS_METERS = 150
+# Street-level geocoding + indoor GPS often sit 150–250 m off the door.
+SITE_RADIUS_METERS = 300
 OFF_SITE_MESSAGE = "Usted no puede marcar puesto que no se encuentra en la ubicación del trabajo."
 
 

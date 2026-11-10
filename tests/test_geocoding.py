@@ -37,8 +37,14 @@ def test_keep_house_number_only_when_street_matches() -> None:
         "Los Araucanos 2401",
     )
     assert kept.label.startswith("Los Araucanos 2401")
+    assert kept.approximate
     skipped = keep_house_number(
         Place("Otra Calle, Maipú, Región Metropolitana", -33.5, -70.7),
         "Los Araucanos 2401",
     )
     assert skipped.label.startswith("Otra Calle")
+    precise = keep_house_number(
+        Place("Los Araucanos 2401, Maipú, Región Metropolitana", -33.5, -70.7, approximate=False),
+        "Los Araucanos 2401",
+    )
+    assert not precise.approximate

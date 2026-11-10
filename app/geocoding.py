@@ -11,10 +11,11 @@ class AddressNotFound(LookupError):
 
 
 class Place:
-    def __init__(self, label: str, latitude: float, longitude: float) -> None:
+    def __init__(self, label: str, latitude: float, longitude: float, approximate: bool = False) -> None:
         self.label = label
         self.latitude = latitude
         self.longitude = longitude
+        self.approximate = approximate
 
 
 # Soft bias around Gran Santiago when the query does not name another city/region.
@@ -81,12 +82,20 @@ def places_from_google(payload: object) -> list[Place]:
             continue
         geometry = item.get("geometry")
         location = geometry.get("location") if isinstance(geometry, dict) else None
+        location_type = text(geometry.get("location_type")) if isinstance(geometry, dict) else ""
         label = google_label(item)
         if not isinstance(location, dict) or not label:
             continue
         if "lat" not in location or "lng" not in location:
             continue
-        places.append(Place(label, float(location["lat"]), float(location["lng"])))
+        components = item.get("address_components")
+        street_number = component_name(components, "street_number") if isinstance(components, list) else ""
+        approximate = not street_number or location_type in {
+            "APPROXIMATE",
+            "GEOMETRIC_CENTER",
+            "RANGE_INTERPOLATED",
+        }
+        places.append(Place(label, float(location["lat"]), float(location["lng"]), approximate))
     return places
 
 
@@ -100,7 +109,9 @@ def places_from_nominatim(payload: object) -> list[Place]:
         label = nominatim_label(item)
         if not label or "lat" not in item or "lon" not in item:
             continue
-        places.append(Place(label, float(item["lat"]), float(item["lon"])))
+        details = item.get("address")
+        has_number = isinstance(details, dict) and bool(text(details.get("house_number")))
+        places.append(Place(label, float(item["lat"]), float(item["lon"]), approximate=not has_number))
     return places
 
 
@@ -246,7 +257,8 @@ def keep_house_number(place: Place, query: str) -> Place:
     labeled = f"{street} {number}"
     if rest.strip():
         labeled = f"{labeled}, {rest.strip()}"
-    return Place(labeled, place.latitude, place.longitude)
+    # Label got a number the geocoder did not resolve; coordinates stay street-level.
+    return Place(labeled, place.latitude, place.longitude, approximate=True)
 
 
 def place_score(query: str, place: Place) -> tuple[int, int, str]:
