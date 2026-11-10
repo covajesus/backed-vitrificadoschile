@@ -6,7 +6,14 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.domain import client_ride_for, late_minutes_now, late_notice_due, scheduled_on
+from app.domain import (
+    busy_on_other_marked_work,
+    client_ride_for,
+    late_minutes_now,
+    late_notice_due,
+    scheduled_on,
+    shift_still_open,
+)
 from app.models import (
     ROLE_HELPER,
     ROLE_SITE_LEAD,
@@ -56,10 +63,13 @@ def _remind(db: Session, now: datetime) -> int:
         )
     }
     users = {row.id: row for row in db.query(UserRow).filter(UserRow.deleted_at.is_(None))}
-    arrived = {
+    arrived_pairs = {
         (row.work_id, row.user_id)
         for row in db.query(TimeClockRow).filter(TimeClockRow.arrive_date == today_iso)
     }
+    arrived_by_user: dict[int, set[int]] = {}
+    for work_id, user_id in arrived_pairs:
+        arrived_by_user.setdefault(user_id, set()).add(work_id)
     ride_rows = [
         (row.work_id, row.worker_ids or "", row.ride_dates or "", row.arrival_time or "", row.latitude, row.longitude)
         for row in db.query(ClientRideRow).filter(ClientRideRow.deleted_at.is_(None)).all()
@@ -76,10 +86,21 @@ def _remind(db: Session, now: datetime) -> int:
         excluded = {item for item in (schedule.excluded_dates or "").split(",") if item}
         if not scheduled_on(work.work_days, schedule.start_date or "", schedule.day_count or 0, excluded, today):
             continue
-        if (work.id, person.id) in arrived:
+        if (work.id, person.id) in arrived_pairs:
+            continue
+        # Ya marcó otra obra y esa jornada aún no termina: no molestar por la segunda.
+        if busy_on_other_marked_work(
+            arrived_work_ids=arrived_by_user.get(person.id, set()),
+            works=works,
+            skip_work_id=work.id,
+            now_minutes=now_minutes,
+        ):
             continue
         ride = client_ride_for(ride_rows, work.id, person.id, today_iso)
         start = ride[0] if ride is not None else work.shift_start
+        # No seguir avisando cuando la jornada de esta obra ya terminó.
+        if not shift_still_open(work.shift_end or "", now_minutes):
+            continue
         # Gracia no aplica al cron de WhatsApp; el mensaje lleva los minutos reales de atraso.
         slot = late_notice_due(start, 0, now_minutes)
         if slot is None or len((person.phone or "").strip()) < 8:

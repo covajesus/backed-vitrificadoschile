@@ -1304,6 +1304,7 @@ def register_arrival(
         latitude=body.latitude,
         longitude=body.longitude,
         require_location=not manual,
+        require_photo=not manual,
         check_photo_day=not manual,
     )
     if message or work is None or person is None:

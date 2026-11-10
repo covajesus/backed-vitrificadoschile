@@ -172,6 +172,37 @@ def late_notice_due(shift_start: str, _grace_minutes: int, now_minutes: int) -> 
     return (late // 30) * 30
 
 
+def shift_still_open(shift_end: str, now_minutes: int) -> bool:
+    """True while the clock is still before the obra's official end."""
+    end = minutes_of((shift_end or "").strip()[:5])
+    if end is None:
+        return False
+    return now_minutes < end
+
+
+def busy_on_other_marked_work(
+    *,
+    arrived_work_ids: set[int],
+    works: dict[int, object],
+    skip_work_id: int,
+    now_minutes: int,
+) -> bool:
+    """
+    If the person already marked another obra whose jornada has not ended,
+    do not nag about a second obra yet (morning obra 08-13, afternoon 15-…).
+    """
+    for work_id in arrived_work_ids:
+        if work_id == skip_work_id:
+            continue
+        work = works.get(work_id)
+        if work is None:
+            continue
+        shift_end = getattr(work, "shift_end", "") or ""
+        if shift_still_open(shift_end, now_minutes):
+            return True
+    return False
+
+
 def work_error(
     name: str,
     address: str,
@@ -337,6 +368,7 @@ def arrival_block_reason(
     latitude: float | None,
     longitude: float | None,
     require_location: bool = True,
+    require_photo: bool = True,
     check_photo_day: bool = False,
 ) -> str | None:
     if not work_active:
@@ -345,9 +377,10 @@ def arrival_block_reason(
         return "El trabajador no está activo."
     if not assigned:
         return "Solo la dotación asignada puede marcar llegada en esta obra."
-    if not photo_data_url.startswith("data:image/"):
+    has_photo = photo_data_url.startswith("data:image/")
+    if require_photo and not has_photo:
         return "La fotografía es obligatoria."
-    if check_photo_day:
+    if has_photo and check_photo_day:
         stale = photo_day_error(photo_data_url)
         if stale:
             return stale

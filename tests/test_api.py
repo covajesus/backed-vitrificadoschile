@@ -143,6 +143,31 @@ def test_arrival_requires_photo_and_gps() -> None:
     })
     assert response.status_code == 400
     assert "GPS" in response.json()["detail"]
+    missing_photo = api.post("/api/arrivals", headers=headers, json={
+        "workId": "1",
+        "workerId": "2",
+        "at": "2026-10-03T12:00:00.000Z",
+        "latitude": -33.4,
+        "longitude": -70.5,
+        "photoDataUrl": "",
+    })
+    assert missing_photo.status_code == 400
+    assert "fotografía" in missing_photo.json()["detail"].lower()
+
+
+def test_admin_arrival_allows_missing_photo() -> None:
+    api = client()
+    headers = admin_headers(api)
+    response = api.post("/api/arrivals", headers=headers, json={
+        "workId": "1",
+        "workerId": "2",
+        "at": "2026-10-04T09:15:00",
+        "latitude": None,
+        "longitude": None,
+        "photoDataUrl": "",
+    })
+    assert response.status_code == 200
+    assert response.json()["at"].startswith("2026-10-04T09:15")
 
 
 def test_arrival_rejects_a_mark_away_from_the_site() -> None:
@@ -1272,7 +1297,15 @@ def test_settings_store_many_emails_and_phones() -> None:
 def test_late_slot_starts_thirty_minutes_after_grace() -> None:
     from datetime import date
 
-    from app.domain import chile_wall_clock, clamp_arrival_moment, late_notice_due, late_slot, scheduled_on
+    from app.domain import (
+        busy_on_other_marked_work,
+        chile_wall_clock,
+        clamp_arrival_moment,
+        late_notice_due,
+        late_slot,
+        scheduled_on,
+        shift_still_open,
+    )
 
     # Gracia solo para pago; el WhatsApp ignora gracia.
     assert late_slot("08:00", 10, 8 * 60 + 20) is None
@@ -1282,6 +1315,21 @@ def test_late_slot_starts_thirty_minutes_after_grace() -> None:
     assert late_notice_due("08:00", 10, 8 * 60 + 35) == 30
     assert late_notice_due("08:00", 10, 8 * 60 + 27) is None
     assert late_notice_due("08:00", 10, 9 * 60 + 10) == 60
+    assert shift_still_open("13:00", 12 * 60 + 59) is True
+    assert shift_still_open("13:00", 13 * 60) is False
+    morning = type("Work", (), {"shift_end": "13:00"})()
+    assert busy_on_other_marked_work(
+        arrived_work_ids={1},
+        works={1: morning},
+        skip_work_id=2,
+        now_minutes=10 * 60,
+    )
+    assert not busy_on_other_marked_work(
+        arrived_work_ids={1},
+        works={1: morning},
+        skip_work_id=2,
+        now_minutes=13 * 60,
+    )
     assert chile_wall_clock("2026-10-27T13:40:00.000Z") == "2026-10-27T10:40:00"
     assert chile_wall_clock("2026-10-27T10:40:00") == "2026-10-27T10:40:00"
     assert clamp_arrival_moment("2026-10-27T06:30:00", "07:00") == "2026-10-27T07:00:00"
@@ -1332,6 +1380,81 @@ def test_a_late_worker_is_reminded_every_thirty_minutes(monkeypatch) -> None:
         db.add(TimeClockRow(work_id=1, user_id=2, location="-33.4,-70.5", photo="", arrive_date="2026-10-05", arrive_time="09:12:00"))
         db.commit()
         assert remind_late_workers(db, datetime(2026, 10, 5, 9, 40)) == 0
+
+
+def test_late_whatsapp_waits_while_busy_on_morning_obra(monkeypatch) -> None:
+    from datetime import datetime
+
+    from app.late_arrivals import remind_late_workers
+    from app.models import TimeClockRow
+
+    sent: list[dict] = []
+
+    def fake_template(phone, name, parameters, button_payloads=None, *, document=None, image=None, line_parameters=None, language="es"):
+        sent.append({"phone": phone, "name": name, "parameters": parameters})
+        return {"ok": True, "template": name}
+
+    monkeypatch.setattr("app.whatsapp.send_template", fake_template)
+    api = client()
+    monkeypatch.setenv("META_TOKEN", "test-token")
+    headers = admin_headers(api)
+    work_body = {
+        "name": "Dominicos",
+        "address": "Av. Apoquindo 4500, Las Condes",
+        "shiftStart": "08:00",
+        "shiftEnd": "13:00",
+        "plannedHours": 5,
+        "workDays": "weekdays",
+        "palmetaCount": 200,
+        "squareMeters": 85,
+        "workValue": 0,
+        "clientName": "Cliente Dominicos",
+        "clientPhone": "912345678",
+        "apartment": "1204",
+        "crewNote": "",
+        "workNotice": "",
+        "startsOn": "2026-10-05",
+        "dayCount": 20,
+        "scheduleDates": "2026-10-05,2026-10-06",
+        "finishSample": "",
+        "tintSample": "",
+        "latitude": -33.4,
+        "longitude": -70.5,
+        "charges": [],
+        "notifyWhatsapp": False,
+    }
+    assert api.put("/api/works/1", headers=headers, json=work_body).status_code == 200
+    afternoon_body = {
+        **work_body,
+        "name": "Providencia",
+        "address": "Av. Providencia 100",
+        "shiftStart": "15:00",
+        "shiftEnd": "19:00",
+        "plannedHours": 4,
+        "clientName": "Cliente Providencia",
+        "apartment": "",
+        "dayCount": 1,
+        "scheduleDates": "2026-10-05",
+        "latitude": -33.43,
+        "longitude": -70.62,
+    }
+    assert api.put("/api/works/2", headers=headers, json=afternoon_body).status_code == 200
+    crew = api.put("/api/works/2/crew", headers=headers, json={
+        "members": [{"workerId": "2", "startDate": "2026-10-05", "dayCount": 1, "excludedDates": [], "roleId": 2}],
+    })
+    assert crew.status_code == 200
+    with api.app.state.session_factory() as db:
+        db.add(TimeClockRow(work_id=1, user_id=2, location="-33.4,-70.5", photo="", arrive_date="2026-10-05", arrive_time="08:05:00"))
+        db.commit()
+        # Durante la mañana no molesta por la obra de la tarde.
+        assert remind_late_workers(db, datetime(2026, 10, 5, 10, 0)) == 0
+        # Terminó la mañana; la tarde aún no empieza.
+        assert remind_late_workers(db, datetime(2026, 10, 5, 14, 0)) == 0
+        # 30 min tarde en la obra de la tarde.
+        assert remind_late_workers(db, datetime(2026, 10, 5, 15, 30)) == 1
+        db.commit()
+    assert sent[-1]["parameters"][1] == "30"
+    assert "Providencia" in sent[-1]["parameters"][2]
 
 
 def test_admin_can_roll_the_work_status() -> None:
