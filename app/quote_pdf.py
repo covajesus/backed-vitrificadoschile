@@ -47,17 +47,17 @@ HEADER_H = 15.0
 ROW_H = 15.0
 
 TERMS_TITLE = "TÉRMINOS Y CONDICIONES"
-DEFAULT_TERMS = (
-    "Este presupuesto incluye 3 capas vitrificado base al agua marca alemana "
-    "Berger-Seidle de secado rapido. No se realizan retiros de aserrin, "
-    "excedentes de material ni escombros. Forma de pago: 50% al comenzar los "
-    "trabajos y 50% en la aplicación de la segunda capa de vitrificado. "
-    "EL RETAPE NO TIENE GARANTIA. Reparacion exclusiva con palmetas nuevas. "
-    "La reparacion es solo una proyeccion se cobrara solo lo autorizado y "
-    "ejecutado. Esta cotizacion solo incluye la restauracion del filete "
-    "existente, no incluye reposicion. No se incluye mover vidrios, espejos, "
-    "cuadros, copas ni objetos fragiles."
+DEFAULT_TERMS_ITEMS = (
+    "Este presupuesto incluye 3 capas vitrificado base al agua marca alemana Berger-Seidle de secado rapido.",
+    "No se realizan retiros de aserrin, excedentes de material ni escombros.",
+    "Forma de pago: 50% al comenzar los trabajos y 50% en la aplicación de la segunda capa de vitrificado.",
+    "EL RETAPE NO TIENE GARANTIA.",
+    "Reparacion exclusiva con palmetas nuevas.",
+    "La reparacion es solo una proyeccion se cobrara solo lo autorizado y ejecutado.",
+    "Esta cotizacion solo incluye la restauracion del filete existente, no incluye reposicion.",
+    "No se incluye mover vidrios, espejos, cuadros, copas ni objetos fragiles.",
 )
+DEFAULT_TERMS = "\n".join(f"• {item}" for item in DEFAULT_TERMS_ITEMS)
 
 _FONTS_READY = False
 
@@ -382,12 +382,24 @@ def draw_totals(
     c.line(385.0, top_y(box_bottom), 385.0, top_y(box_top))
 
     raw = (terms or "").strip() or DEFAULT_TERMS
-    # Si alguien pegó el titulo en el texto, no lo duplicamos
-    body = raw
     upper = raw.upper().replace("É", "E")
     if upper.startswith("TERMINOS Y CONDICIONES"):
         parts = raw.split("\n", 1)
-        body = (parts[1] if len(parts) > 1 else "").strip() or DEFAULT_TERMS
+        raw = (parts[1] if len(parts) > 1 else "").strip() or DEFAULT_TERMS
+
+    items: list[str] = []
+    for part in raw.replace("\r\n", "\n").split("\n"):
+        line = part.strip()
+        if not line:
+            continue
+        for prefix in ("• ", "- ", "* ", "· "):
+            if line.startswith(prefix):
+                line = line[len(prefix):].strip()
+                break
+        if line:
+            items.append(line)
+    if not items:
+        items = list(DEFAULT_TERMS_ITEMS)
 
     title_style = ParagraphStyle(
         "QuoteTermsTitle",
@@ -401,9 +413,13 @@ def draw_totals(
         "QuoteTermsBody",
         fontName=font_name(False),
         fontSize=5.5,
-        leading=7.2,
+        leading=7.0,
         textColor=black,
         alignment=TA_JUSTIFY,
+        leftIndent=10,
+        bulletIndent=0,
+        bulletFontName=font_name(False),
+        bulletFontSize=5.5,
     )
 
     terms_width = 348.0
@@ -411,12 +427,18 @@ def draw_totals(
     title_para = Paragraph(_para_escape(TERMS_TITLE), title_style)
     title_w, title_h = title_para.wrap(terms_width, 40)
     title_para.drawOn(c, 26.0, top_y(cursor_top) - title_h + 7)
-    cursor_top += title_h + 4
+    cursor_top += title_h + 3
 
-    body_para = Paragraph(_para_escape(body.replace("\n", " ")), body_style)
-    max_h = max(20.0, 750.0 - cursor_top)
-    body_w, body_h = body_para.wrap(terms_width, max_h)
-    body_para.drawOn(c, 26.0, top_y(cursor_top) - body_h + 5.5)
+    for item in items:
+        if cursor_top > 748:
+            break
+        # Viñeta + texto justificado por cada punto
+        bullet_html = f"• {_para_escape(item)}"
+        item_para = Paragraph(bullet_html, body_style)
+        max_h = max(14.0, 750.0 - cursor_top)
+        _w, item_h = item_para.wrap(terms_width, max_h)
+        item_para.drawOn(c, 26.0, top_y(cursor_top) - item_h + 5.5)
+        cursor_top += item_h + 2.5
 
     rows = (
         ("SUBTOTAL", "(=)", money_clp(subtotal), 658.0),
