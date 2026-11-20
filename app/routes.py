@@ -2826,7 +2826,11 @@ def next_quote_number(db: Session) -> int:
     return int(current[0]) + 1
 
 
-def quote_payload(body: QuoteBody, db: Session) -> tuple[int, str, str, str, str, list[tuple[str, str, str, float, int, int, int]]]:
+def quote_payload(
+    body: QuoteBody,
+    db: Session,
+    quote_id: int | None = None,
+) -> tuple[int, str, str, str, str, list[tuple[str, str, str, float, int, int, int]]]:
     if re.fullmatch(r"[1-9]\d*", body.number.strip()) is None:
         fail(400, "Indica el correlativo.")
     number = int(body.number.strip())
@@ -2846,12 +2850,10 @@ def quote_payload(body: QuoteBody, db: Session) -> tuple[int, str, str, str, str
         fail(400, "El cliente admite hasta 160 caracteres.")
     if len(client_phone) > 30:
         fail(400, "El teléfono admite hasta 30 caracteres.")
-    exists = (
-        db.query(QuoteRow)
-        .filter(QuoteRow.deleted_at.is_(None), QuoteRow.number == number)
-        .first()
-    )
-    if exists is not None:
+    exists_query = db.query(QuoteRow).filter(QuoteRow.deleted_at.is_(None), QuoteRow.number == number)
+    if quote_id is not None:
+        exists_query = exists_query.filter(QuoteRow.id != quote_id)
+    if exists_query.first() is not None:
         fail(400, "Ese correlativo ya está en uso.")
     priced: list[tuple[str, str, str, float, int, int, int]] = []
     for index, line in enumerate(body.lines):
@@ -2942,6 +2944,75 @@ def create_quote(
     db.commit()
     db.refresh(row)
     return quote_out(row, quote_lines_for(db, row.id))
+
+
+def replace_quote_lines(db: Session, quote_id: int, priced: list[tuple[str, str, str, float, int, int, int]]) -> None:
+    db.query(QuoteLineRow).filter(QuoteLineRow.quote_id == quote_id).delete()
+    for position, item in enumerate(priced):
+        db.add(QuoteLineRow(
+            quote_id=quote_id,
+            position=position,
+            item_id=item[0],
+            name=item[1],
+            unit_label=item[2],
+            quantity=item[3],
+            unit_price=item[4],
+            line_total=item[5],
+            custom=item[6],
+        ))
+
+
+@router.get("/quotes/{quote_id}")
+def get_quote(
+    quote_id: int,
+    _: AccountRow = Depends(require_quote_access),
+    db: Session = Depends(get_db),
+) -> QuoteOut:
+    row = db.get(QuoteRow, quote_id)
+    if row is None or row.deleted_at is not None:
+        fail(404, "El presupuesto no existe.")
+    return quote_out(row, quote_lines_for(db, row.id))
+
+
+@router.put("/quotes/{quote_id}")
+def update_quote(
+    quote_id: int,
+    body: QuoteBody,
+    _: AccountRow = Depends(require_quote_access),
+    db: Session = Depends(get_db),
+) -> QuoteOut:
+    row = db.get(QuoteRow, quote_id)
+    if row is None or row.deleted_at is not None:
+        fail(404, "El presupuesto no existe.")
+    number, document_id, client_name, client_phone, notes, priced = quote_payload(body, db, quote_id)
+    subtotal = sum(item[5] for item in priced)
+    tax, total = quote_tax_amounts(subtotal)
+    row.number = number
+    row.document_id = document_id
+    row.client_name = client_name
+    row.client_phone = client_phone
+    row.notes = notes
+    row.subtotal = subtotal
+    row.tax = tax
+    row.total = total
+    replace_quote_lines(db, row.id, priced)
+    db.commit()
+    db.refresh(row)
+    return quote_out(row, quote_lines_for(db, row.id))
+
+
+@router.delete("/quotes/{quote_id}")
+def delete_quote(
+    quote_id: int,
+    _: AccountRow = Depends(require_quote_access),
+    db: Session = Depends(get_db),
+) -> dict[str, bool]:
+    row = db.get(QuoteRow, quote_id)
+    if row is None or row.deleted_at is not None:
+        fail(404, "El presupuesto no existe.")
+    row.deleted_at = utcnow()
+    db.commit()
+    return {"ok": True}
 
 
 @router.get("/whatsapp/webhook")

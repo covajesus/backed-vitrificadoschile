@@ -114,6 +114,31 @@ def test_quote_role_saves_budget_with_tax_in_database() -> None:
     denied = api.get("/api/quotes", headers=lead_headers(api))
     assert denied.status_code == 403
 
+    updated = api.put(f"/api/quotes/{body['id']}", headers=headers, json={
+        "number": "3995",
+        "documentId": "12.345.678-9",
+        "clientName": "Cliente Editado",
+        "clientPhone": "912345678",
+        "notes": "Actualizado",
+        "lines": [
+            {
+                "itemId": "residential-traffic",
+                "name": "Tráfico residencial",
+                "unitLabel": "x mt2",
+                "quantity": 5,
+                "unitPrice": 12500,
+                "custom": False,
+            },
+        ],
+    })
+    assert updated.status_code == 200
+    assert updated.json()["clientName"] == "Cliente Editado"
+    assert updated.json()["subtotal"] == 62500
+
+    deleted = api.delete(f"/api/quotes/{body['id']}", headers=headers)
+    assert deleted.status_code == 200
+    assert api.get("/api/quotes", headers=headers).json() == []
+
 
 def test_admin_site_can_call_the_login_preflight() -> None:
     api = client()
