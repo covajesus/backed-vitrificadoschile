@@ -150,7 +150,10 @@ def test_quote_pdf_matches_dte_layout() -> None:
         "documentId": "12.345.678-9",
         "clientName": "Cliente Demo",
         "clientPhone": "912345678",
-        "notes": "Incluye materiales",
+        "notes": (
+            "TÉRMINOS Y CONDICIONES\n"
+            "Este presupuesto incluye 3 capas vitrificado Berger-Seidle."
+        ),
         "lines": [
             {
                 "itemId": "residential-traffic",
@@ -174,9 +177,11 @@ def test_quote_pdf_matches_dte_layout() -> None:
     assert "Cliente Demo" in text
     assert "IVA" in text and "19%" in text
     assert "SUBTOTAL" in text
-    assert "Observaciones:" in text
+    assert "TÉRMINOS Y CONDICIONES" in text or "TERMINOS Y CONDICIONES" in text
     assert "Trafico residencial" in text
-    assert "Documento comercial" in text
+    assert "Observaciones:" not in text
+    assert "Documento comercial" not in text
+    assert "Berger-Seidle" in text
     assert api.get(f"/api/quotes/{quote_id}/pdf", headers=lead_headers(api)).status_code == 403
 
 

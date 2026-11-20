@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import tempfile
 from datetime import date, datetime, timedelta
 from decimal import Decimal, ROUND_HALF_UP
 from functools import lru_cache
@@ -38,9 +39,22 @@ VALIDITY_DAYS = 10
 # Columnas tabla (x derecho de cada borde vertical)
 COL_X = (18.0, 70.0, 385.0, 437.0, 489.0, 541.0, 594.0)
 TABLE_TOP = 232.0
-TABLE_BOTTOM = 639.0
+TABLE_BOTTOM = 620.0
 HEADER_H = 15.0
 ROW_H = 15.0
+
+DEFAULT_TERMS = (
+    "TÉRMINOS Y CONDICIONES\n"
+    "Este presupuesto incluye 3 capas vitrificado base al agua marca alemana "
+    "Berger-Seidle de secado rapido. No se realizan retiros de aserrin, "
+    "excedentes de material ni escombros. Forma de pago: 50% al comenzar los "
+    "trabajos y 50% en la aplicación de la segunda capa de vitrificado. "
+    "EL RETAPE NO TIENE GARANTIA. Reparacion exclusiva con palmetas nuevas. "
+    "La reparacion es solo una proyeccion se cobrara solo lo autorizado y "
+    "ejecutado. Esta cotizacion solo incluye la restauracion del filete "
+    "existente, no incluye reposicion. No se incluye mover vidrios, espejos, "
+    "cuadros, copas ni objetos fragiles."
+)
 
 _FONTS_READY = False
 
@@ -157,7 +171,7 @@ def prepared_logo_path() -> Path | None:
     output = Image.new("RGBA", (width, height), (0, 0, 0, 0))
     output.paste(image, mask=mask)
 
-    target = Path("/tmp") / "vitrificados_logo_circular_pdf.png"
+    target = Path(tempfile.gettempdir()) / "vitrificados_logo_circular_pdf.png"
     output.save(target, format="PNG")
     return target
 
@@ -339,46 +353,45 @@ def draw_products_table(
     return table_bottom
 
 
-def draw_observations(c: canvas.Canvas, notes: str, y_top: float = 654.7) -> float:
-    text = f"Observaciones: {(notes or 'Sin observaciones.').strip() or 'Sin observaciones.'}"
-    c.setFillColor(black)
-    c.setFont(font_name(True), 7)
-    for index, line in enumerate(wrap_text(text, 360, 7, True, max_lines=3)):
-        c.drawString(LEFT, top_y(y_top + index * 10), line)
-    return y_top + 20
-
-
 def draw_totals(
     c: canvas.Canvas,
     *,
-    number: str,
+    terms: str,
     subtotal: int,
     tax: int,
     total: int,
 ) -> None:
-    # Caja inferior 662-753
-    box_top, box_bottom = 662.0, 753.0
+    # Caja inferior: terminos (desde el formulario) a la izquierda, totales a la derecha
+    box_top, box_bottom = 632.0, 753.0
     c.setStrokeColor(black)
     c.setLineWidth(0.9)
     c.rect(LEFT, top_y(box_bottom), CONTENT_W, box_bottom - box_top, stroke=1, fill=0)
     c.setLineWidth(0.8)
     c.line(385.0, top_y(box_bottom), 385.0, top_y(box_top))
 
-    c.setFillColor(black)
-    c.setFont(font_name(True), 8)
-    c.drawString(26.0, top_y(678.9), f"PRESUPUESTO N.º {number}")
-    c.setFont(font_name(False), 7)
-    c.drawString(26.0, top_y(694.7), "Documento comercial - No válido como factura tributaria.")
+    text = (terms or "").strip() or DEFAULT_TERMS
+    paragraphs = [part.strip() for part in text.replace("\r\n", "\n").split("\n") if part.strip()]
+    terms_y = 644.0
+    for index, paragraph in enumerate(paragraphs):
+        bold = index == 0
+        size = 7 if bold else 5.5
+        c.setFillColor(black)
+        c.setFont(font_name(bold), size)
+        for line in wrap_text(paragraph, 348, size, bold, max_lines=12):
+            if terms_y > 748:
+                break
+            c.drawString(26.0, top_y(terms_y), line)
+            terms_y += 7.0 if bold else 6.8
+        terms_y += 2
 
     rows = (
-        ("SUBTOTAL", "(=)", money_clp(subtotal), 678.8),
-        ("NETO", "(=)", money_clp(subtotal), 693.8),
-        ("IVA (19%)", "(+)", money_clp(tax), 708.8),
-        ("EXENTO", "(+)", money_clp(0), 723.8),
-        ("TOTAL", "(=)", money_clp(total), 738.8),
+        ("SUBTOTAL", "(=)", money_clp(subtotal), 658.0),
+        ("NETO", "(=)", money_clp(subtotal), 676.0),
+        ("IVA (19%)", "(+)", money_clp(tax), 694.0),
+        ("EXENTO", "(+)", money_clp(0), 712.0),
+        ("TOTAL", "(=)", money_clp(total), 734.0),
     )
     for label, op, value, y in rows:
-        bold = label == "TOTAL"
         c.setFont(font_name(True), 7.5)
         c.setFillColor(black)
         c.drawString(392.0, top_y(y), label)
@@ -438,8 +451,7 @@ def generate_budget_pdf(
         )
         draw_products_table(c, page_lines)
         if index == pages:
-            draw_observations(c, notes)
-            draw_totals(c, number=number, subtotal=subtotal, tax=tax, total=total)
+            draw_totals(c, terms=notes, subtotal=subtotal, tax=tax, total=total)
         draw_footer(c, index, pages)
         c.showPage()
 
