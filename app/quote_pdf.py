@@ -133,7 +133,7 @@ def wrap_text(text: str, max_width: float, size: float, bold: bool = False, max_
 
 @lru_cache(maxsize=1)
 def prepared_logo_path() -> Path | None:
-    """Logo circular con fondo negro convertido a transparente."""
+    """Logo circular con fondo negro convertido a transparente (escribe en /tmp)."""
     source = Path(__file__).resolve().parent / "assets" / "logo_circular.png"
     if not source.is_file():
         bundled = Path(__file__).resolve().parent / "assets" / "logo.jpg"
@@ -157,7 +157,7 @@ def prepared_logo_path() -> Path | None:
     output = Image.new("RGBA", (width, height), (0, 0, 0, 0))
     output.paste(image, mask=mask)
 
-    target = Path(__file__).resolve().parent / "assets" / "logo_circular_pdf.png"
+    target = Path("/tmp") / "vitrificados_logo_circular_pdf.png"
     output.save(target, format="PNG")
     return target
 
