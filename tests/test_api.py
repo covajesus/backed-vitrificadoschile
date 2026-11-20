@@ -42,6 +42,79 @@ def lead_headers(api: TestClient) -> dict[str, str]:
     return {"Authorization": f"Bearer {response.json()['token']}"}
 
 
+def test_quote_role_can_log_in() -> None:
+    api = client()
+    response = api.post(
+        "/api/auth/login",
+        json={"email": "cotizacion@vitrificados.local", "password": "123456"},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["account"]["roleId"] == 4
+    assert body["account"]["name"].startswith("Cotización")
+
+
+def quote_headers(api: TestClient) -> dict[str, str]:
+    response = api.post(
+        "/api/auth/login",
+        json={"email": "cotizacion@vitrificados.local", "password": "123456"},
+    )
+    assert response.status_code == 200
+    return {"Authorization": f"Bearer {response.json()['token']}"}
+
+
+def test_quote_role_saves_budget_with_tax_in_database() -> None:
+    api = client()
+    headers = quote_headers(api)
+    next_number = api.get("/api/quotes/next-number", headers=headers)
+    assert next_number.status_code == 200
+    assert next_number.json()["number"] == "3995"
+
+    created = api.post("/api/quotes", headers=headers, json={
+        "number": "3995",
+        "documentId": "12.345.678-9",
+        "clientName": "Cliente Demo",
+        "clientPhone": "912345678",
+        "notes": "Incluye materiales",
+        "lines": [
+            {
+                "itemId": "residential-traffic",
+                "name": "Tráfico residencial",
+                "unitLabel": "x mt2",
+                "quantity": 10,
+                "unitPrice": 12500,
+                "custom": False,
+            },
+            {
+                "itemId": "custom-1",
+                "name": "Extra",
+                "unitLabel": "",
+                "quantity": 2,
+                "unitPrice": 1000,
+                "custom": True,
+            },
+        ],
+    })
+    assert created.status_code == 200
+    body = created.json()
+    assert body["number"] == "3995"
+    assert body["subtotal"] == 127000
+    assert body["tax"] == 24130
+    assert body["total"] == 151130
+    assert len(body["lines"]) == 2
+
+    listed = api.get("/api/quotes", headers=headers)
+    assert listed.status_code == 200
+    assert len(listed.json()) == 1
+    assert listed.json()[0]["clientName"] == "Cliente Demo"
+
+    again = api.get("/api/quotes/next-number", headers=headers)
+    assert again.json()["number"] == "3996"
+
+    denied = api.get("/api/quotes", headers=lead_headers(api))
+    assert denied.status_code == 403
+
+
 def test_admin_site_can_call_the_login_preflight() -> None:
     api = client()
     response = api.options(
@@ -532,7 +605,7 @@ def test_roles_statuses_and_schedules_are_numeric() -> None:
         roles = [(row.id, row.rol) for row in db.query(RoleRow).order_by(RoleRow.id)]
         statuses = [(row.id, row.name) for row in db.query(StatusRow).order_by(StatusRow.id)]
         schedule = db.query(WorkScheduleRow).order_by(WorkScheduleRow.id).first()
-    assert roles == [(1, "Administrador"), (2, "Maestro de Obra"), (3, "Ayudante")]
+    assert roles == [(1, "Administrador"), (2, "Maestro de Obra"), (3, "Ayudante"), (4, "Cotización")]
     assert statuses == [
         (1, "En espera"),
         (2, "Trabajando"),

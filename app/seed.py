@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from app.models import (
     ROLE_ADMIN,
     ROLE_HELPER,
+    ROLE_QUOTE,
     ROLE_SITE_LEAD,
     STATUS_ACTIVE,
     STATUS_WORKING,
@@ -48,6 +49,7 @@ def seed_if_empty(db: Session) -> None:
         RoleRow(id=ROLE_ADMIN, rol="Administrador", protected=1),
         RoleRow(id=ROLE_SITE_LEAD, rol="Maestro de Obra", contract_type_id=2, protected=1),
         RoleRow(id=ROLE_HELPER, rol="Ayudante", contract_type_id=2, protected=1),
+        RoleRow(id=ROLE_QUOTE, rol="Cotización", protected=1),
         StatusRow(id=STATUS_ACTIVE, name="En espera"),
         StatusRow(id=STATUS_WORKING, name="Trabajando"),
         StatusRow(id=3, name="Entregada"),
@@ -119,6 +121,15 @@ def seed_if_empty(db: Session) -> None:
             photo=PHOTO,
             email="helper.worker@vitrificados.local",
             password_hash=hash_password("demo-site"),
+        ),
+        UserRow(
+            id=4,
+            rol_id=ROLE_QUOTE,
+            names="Cotización",
+            lastnames="",
+            photo="",
+            email="cotizacion@vitrificados.local",
+            password_hash=hash_password("123456"),
         ),
     ])
     db.flush()
@@ -210,21 +221,48 @@ def ensure_roles(db: Session) -> None:
         return
     if db.get(RoleRow, ROLE_HELPER) is None:
         db.add(RoleRow(id=ROLE_HELPER, rol="Ayudante", contract_type_id=2, protected=1))
+    if db.get(RoleRow, ROLE_QUOTE) is None:
+        db.add(RoleRow(id=ROLE_QUOTE, rol="Cotización", protected=1))
     if lead.rol == "Empleado":
         lead.rol = "Maestro de Obra"
         helper = db.query(UserRow).filter(UserRow.email == "helper.worker@vitrificados.local").one_or_none()
         if helper is not None and helper.rol_id == ROLE_SITE_LEAD:
             helper.rol_id = ROLE_HELPER
-    for role_id in (ROLE_ADMIN, ROLE_SITE_LEAD, ROLE_HELPER):
+    for role_id in (ROLE_ADMIN, ROLE_SITE_LEAD, ROLE_HELPER, ROLE_QUOTE):
         row = db.get(RoleRow, role_id)
         if row is not None:
             row.protected = 1
+    quote_role = db.get(RoleRow, ROLE_QUOTE)
+    if quote_role is not None:
+        quote_role.rol = "Cotización"
     if lead.contract_type_id is None:
         lead.contract_type_id = 2
     helper = db.get(RoleRow, ROLE_HELPER)
     if helper is not None and helper.contract_type_id is None:
         helper.contract_type_id = 2
+    ensure_quote_user(db)
     db.commit()
+
+
+def ensure_quote_user(db: Session) -> None:
+    email = "cotizacion@vitrificados.local"
+    user = db.query(UserRow).filter(UserRow.email == email).one_or_none()
+    if user is None:
+        db.add(UserRow(
+            rol_id=ROLE_QUOTE,
+            names="Cotización",
+            lastnames="",
+            photo="",
+            email=email,
+            password_hash=hash_password("123456"),
+            status_id=4,
+        ))
+        return
+    user.rol_id = ROLE_QUOTE
+    if user.deleted_at is not None:
+        user.deleted_at = None
+    if user.status_id is None:
+        user.status_id = 4
 
 
 CONTRACT_TYPES = (

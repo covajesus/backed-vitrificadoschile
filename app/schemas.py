@@ -486,6 +486,46 @@ class DeductionOut(DeductionBody):
     createdAt: str
 
 
+class QuoteLineBody(BaseModel):
+    itemId: str
+    name: str
+    unitLabel: str = ""
+    quantity: float
+    unitPrice: int
+    custom: bool = False
+
+
+class QuoteBody(BaseModel):
+    number: str
+    documentId: str
+    clientName: str
+    clientPhone: str
+    notes: str = ""
+    lines: list[QuoteLineBody]
+
+
+class QuoteLineOut(QuoteLineBody):
+    lineTotal: int
+
+
+class QuoteOut(BaseModel):
+    id: str
+    number: str
+    documentId: str
+    clientName: str
+    clientPhone: str
+    notes: str
+    lines: list[QuoteLineOut]
+    subtotal: int
+    tax: int
+    total: int
+    createdAt: str
+
+
+class QuoteNextNumberOut(BaseModel):
+    number: str
+
+
 class PaymentOut(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 

@@ -4,7 +4,7 @@ from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
-from app.models import ROLE_ADMIN, UserRow
+from app.models import ROLE_ADMIN, ROLE_QUOTE, UserRow
 from app.security import read_token
 
 bearer = HTTPBearer(auto_error=False)
@@ -38,5 +38,11 @@ def current_account(
 
 def require_admin(account: UserRow = Depends(current_account)) -> UserRow:
     if account.rol_id != ROLE_ADMIN:
+        raise HTTPException(status_code=403, detail="No tienes permiso para esta acción.")
+    return account
+
+
+def require_quote_access(account: UserRow = Depends(current_account)) -> UserRow:
+    if account.rol_id not in {ROLE_ADMIN, ROLE_QUOTE}:
         raise HTTPException(status_code=403, detail="No tienes permiso para esta acción.")
     return account

@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import PlainTextResponse, Response
 from sqlalchemy.orm import Session
 
-from app.deps import current_account, get_db, require_admin
+from app.deps import current_account, get_db, require_admin, require_quote_access
 from app.domain import (
     OFF_SITE_MESSAGE,
     arrival_block_reason,
@@ -50,6 +50,8 @@ from app.models import (
     ContractTypeRow,
     DeductionRow,
     NotificationContactRow,
+    QuoteLineRow,
+    QuoteRow,
     MeasureUnitRow,
     PalmetaChangeRow,
     RoleRow,
@@ -91,6 +93,10 @@ from app.schemas import (
     CrewReplaceOut,
     DeductionBody,
     DeductionOut,
+    QuoteBody,
+    QuoteLineOut,
+    QuoteNextNumberOut,
+    QuoteOut,
     RoleBody,
     RoleOut,
     CrewMemberBody,
@@ -2754,6 +2760,188 @@ def delete_deduction(
     row.deleted_at = utcnow()
     db.commit()
     return {"ok": True}
+
+
+QUOTE_NUMBER_START = 3995
+QUOTE_TAX_RATE = 0.19
+
+
+def quote_line_total(quantity: float, unit_price: int) -> int:
+    if quantity <= 0 or unit_price <= 0:
+        return 0
+    return int(round(quantity * unit_price))
+
+
+def quote_tax_amounts(subtotal: int) -> tuple[int, int]:
+    tax = int(round(subtotal * QUOTE_TAX_RATE))
+    return tax, subtotal + tax
+
+
+def quote_out(row: QuoteRow, lines: list[QuoteLineRow]) -> QuoteOut:
+    ordered = sorted(lines, key=lambda item: item.position)
+    return QuoteOut(
+        id=str(row.id),
+        number=str(row.number),
+        documentId=row.document_id,
+        clientName=row.client_name,
+        clientPhone=row.client_phone,
+        notes=row.notes,
+        lines=[
+            QuoteLineOut(
+                itemId=line.item_id,
+                name=line.name,
+                unitLabel=line.unit_label,
+                quantity=line.quantity,
+                unitPrice=line.unit_price,
+                custom=bool(line.custom),
+                lineTotal=line.line_total,
+            )
+            for line in ordered
+        ],
+        subtotal=row.subtotal,
+        tax=row.tax,
+        total=row.total,
+        createdAt=row.created_at.isoformat(),
+    )
+
+
+def quote_lines_for(db: Session, quote_id: int) -> list[QuoteLineRow]:
+    return (
+        db.query(QuoteLineRow)
+        .filter(QuoteLineRow.quote_id == quote_id)
+        .order_by(QuoteLineRow.position.asc(), QuoteLineRow.id.asc())
+        .all()
+    )
+
+
+def next_quote_number(db: Session) -> int:
+    current = (
+        db.query(QuoteRow.number)
+        .filter(QuoteRow.deleted_at.is_(None))
+        .order_by(QuoteRow.number.desc())
+        .first()
+    )
+    if current is None:
+        return QUOTE_NUMBER_START
+    return int(current[0]) + 1
+
+
+def quote_payload(body: QuoteBody, db: Session) -> tuple[int, str, str, str, str, list[tuple[str, str, str, float, int, int, int]]]:
+    if re.fullmatch(r"[1-9]\d*", body.number.strip()) is None:
+        fail(400, "Indica el correlativo.")
+    number = int(body.number.strip())
+    document_id = body.documentId.strip()
+    client_name = body.clientName.strip()
+    client_phone = body.clientPhone.strip()
+    notes = body.notes.strip()
+    if not document_id:
+        fail(400, "Indica el RUT.")
+    if not client_name:
+        fail(400, "Indica el cliente.")
+    if not client_phone:
+        fail(400, "Indica el teléfono.")
+    if len(document_id) > 40:
+        fail(400, "El RUT admite hasta 40 caracteres.")
+    if len(client_name) > 160:
+        fail(400, "El cliente admite hasta 160 caracteres.")
+    if len(client_phone) > 30:
+        fail(400, "El teléfono admite hasta 30 caracteres.")
+    exists = (
+        db.query(QuoteRow)
+        .filter(QuoteRow.deleted_at.is_(None), QuoteRow.number == number)
+        .first()
+    )
+    if exists is not None:
+        fail(400, "Ese correlativo ya está en uso.")
+    priced: list[tuple[str, str, str, float, int, int, int]] = []
+    for index, line in enumerate(body.lines):
+        name = line.name.strip()
+        quantity = float(line.quantity)
+        unit_price = int(line.unitPrice)
+        if quantity <= 0 and unit_price <= 0 and not name:
+            continue
+        if quantity <= 0 or unit_price <= 0 or not name:
+            fail(400, "Revisa las partidas con cantidad y valor.")
+        if line.custom and not name:
+            fail(400, "Indica el nombre de la partida agregada.")
+        line_total = quote_line_total(quantity, unit_price)
+        if line_total <= 0:
+            fail(400, "Revisa las partidas con cantidad y valor.")
+        priced.append((
+            line.itemId.strip()[:80],
+            name[:160],
+            line.unitLabel.strip()[:40],
+            quantity,
+            unit_price,
+            line_total,
+            1 if line.custom else 0,
+        ))
+        if index > 200:
+            fail(400, "Demasiadas partidas.")
+    if not priced:
+        fail(400, "Indica al menos una partida con cantidad y valor.")
+    return number, document_id, client_name, client_phone, notes, priced
+
+
+@router.get("/quotes/next-number")
+def get_next_quote_number(
+    _: AccountRow = Depends(require_quote_access),
+    db: Session = Depends(get_db),
+) -> QuoteNextNumberOut:
+    return QuoteNextNumberOut(number=str(next_quote_number(db)))
+
+
+@router.get("/quotes")
+def list_quotes(
+    _: AccountRow = Depends(require_quote_access),
+    db: Session = Depends(get_db),
+) -> list[QuoteOut]:
+    rows = (
+        db.query(QuoteRow)
+        .filter(QuoteRow.deleted_at.is_(None))
+        .order_by(QuoteRow.id.desc())
+        .all()
+    )
+    return [quote_out(row, quote_lines_for(db, row.id)) for row in rows]
+
+
+@router.post("/quotes")
+def create_quote(
+    body: QuoteBody,
+    account: AccountRow = Depends(require_quote_access),
+    db: Session = Depends(get_db),
+) -> QuoteOut:
+    number, document_id, client_name, client_phone, notes, priced = quote_payload(body, db)
+    subtotal = sum(item[5] for item in priced)
+    tax, total = quote_tax_amounts(subtotal)
+    row = QuoteRow(
+        number=number,
+        document_id=document_id,
+        client_name=client_name,
+        client_phone=client_phone,
+        notes=notes,
+        subtotal=subtotal,
+        tax=tax,
+        total=total,
+        created_by=account.id,
+    )
+    db.add(row)
+    db.flush()
+    for position, item in enumerate(priced):
+        db.add(QuoteLineRow(
+            quote_id=row.id,
+            position=position,
+            item_id=item[0],
+            name=item[1],
+            unit_label=item[2],
+            quantity=item[3],
+            unit_price=item[4],
+            line_total=item[5],
+            custom=item[6],
+        ))
+    db.commit()
+    db.refresh(row)
+    return quote_out(row, quote_lines_for(db, row.id))
 
 
 @router.get("/whatsapp/webhook")

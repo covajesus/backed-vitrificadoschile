@@ -20,6 +20,7 @@ def utcnow() -> datetime:
 ROLE_ADMIN = 1
 ROLE_SITE_LEAD = 2
 ROLE_HELPER = 3
+ROLE_QUOTE = 4
 ROLE_EMPLOYEE = ROLE_SITE_LEAD
 STATUS_ACTIVE = 1
 STATUS_WORKING = 2
@@ -360,6 +361,39 @@ class DeductionRow(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class QuoteRow(Base):
+    __tablename__ = "quotes"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    number: Mapped[int] = mapped_column(Integer)
+    document_id: Mapped[str] = mapped_column(String(40), default="")
+    client_name: Mapped[str] = mapped_column(String(160), default="")
+    client_phone: Mapped[str] = mapped_column(String(30), default="")
+    notes: Mapped[str] = mapped_column(Text, default="")
+    subtotal: Mapped[int] = mapped_column(Integer, default=0)
+    tax: Mapped[int] = mapped_column(Integer, default=0)
+    total: Mapped[int] = mapped_column(Integer, default=0)
+    created_by: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class QuoteLineRow(Base):
+    __tablename__ = "quote_lines"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    quote_id: Mapped[int] = mapped_column(ForeignKey("quotes.id"))
+    position: Mapped[int] = mapped_column(Integer, default=0)
+    item_id: Mapped[str] = mapped_column(String(80), default="")
+    name: Mapped[str] = mapped_column(String(160), default="")
+    unit_label: Mapped[str] = mapped_column(String(40), default="")
+    quantity: Mapped[float] = mapped_column(Float, default=0)
+    unit_price: Mapped[int] = mapped_column(Integer, default=0)
+    line_total: Mapped[int] = mapped_column(Integer, default=0)
+    custom: Mapped[int] = mapped_column(Integer, default=0)
 
 
 class AlertRow(Base):
