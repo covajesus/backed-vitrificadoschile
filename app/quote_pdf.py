@@ -42,7 +42,7 @@ VALIDITY_DAYS = 10
 # Columnas tabla (x derecho de cada borde vertical)
 COL_X = (18.0, 70.0, 385.0, 437.0, 489.0, 541.0, 594.0)
 TABLE_TOP = 232.0
-TABLE_BOTTOM = 590.0
+TABLE_BOTTOM = 555.0
 HEADER_H = 15.0
 ROW_H = 15.0
 
@@ -374,7 +374,7 @@ def draw_totals(
     total: int,
 ) -> None:
     # Caja inferior: terminos justificados a la izquierda, totales a la derecha
-    box_top, box_bottom = 602.0, 753.0
+    box_top, box_bottom = 568.0, 753.0
     c.setStrokeColor(black)
     c.setLineWidth(0.9)
     c.rect(LEFT, top_y(box_bottom), CONTENT_W, box_bottom - box_top, stroke=1, fill=0)
@@ -404,30 +404,30 @@ def draw_totals(
     title_style = ParagraphStyle(
         "QuoteTermsTitle",
         fontName=font_name(True),
-        fontSize=9.5,
-        leading=12,
+        fontSize=11,
+        leading=14,
         textColor=black,
         alignment=TA_LEFT,
     )
     body_style = ParagraphStyle(
         "QuoteTermsBody",
         fontName=font_name(False),
-        fontSize=7.5,
-        leading=9.5,
+        fontSize=9,
+        leading=11.5,
         textColor=black,
         alignment=TA_JUSTIFY,
         leftIndent=12,
         bulletIndent=0,
         bulletFontName=font_name(False),
-        bulletFontSize=7.5,
+        bulletFontSize=9,
     )
 
     terms_width = 348.0
-    cursor_top = 614.0
+    cursor_top = 580.0
     title_para = Paragraph(_para_escape(TERMS_TITLE), title_style)
     title_w, title_h = title_para.wrap(terms_width, 40)
-    title_para.drawOn(c, 26.0, top_y(cursor_top) - title_h + 9.5)
-    cursor_top += title_h + 4
+    title_para.drawOn(c, 26.0, top_y(cursor_top) - title_h + 11)
+    cursor_top += title_h + 5
 
     for item in items:
         if cursor_top > 748:
@@ -437,8 +437,8 @@ def draw_totals(
         item_para = Paragraph(bullet_html, body_style)
         max_h = max(16.0, 750.0 - cursor_top)
         _w, item_h = item_para.wrap(terms_width, max_h)
-        item_para.drawOn(c, 26.0, top_y(cursor_top) - item_h + 7.5)
-        cursor_top += item_h + 3.0
+        item_para.drawOn(c, 26.0, top_y(cursor_top) - item_h + 9)
+        cursor_top += item_h + 3.5
 
     rows = (
         ("SUBTOTAL", "(=)", money_clp(subtotal), 640.0),
