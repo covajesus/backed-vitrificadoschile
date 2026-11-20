@@ -6,4 +6,7 @@ pydantic>=2.12.4
 pyjwt==2.10.1
 httpx==0.28.1
 fpdf2==2.8.3
+reportlab==5.1.0
+pillow==12.3.0
+pymupdf==1.26.7
 pytest==8.4.2

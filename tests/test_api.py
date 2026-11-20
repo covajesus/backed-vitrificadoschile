@@ -140,6 +140,46 @@ def test_quote_role_saves_budget_with_tax_in_database() -> None:
     assert api.get("/api/quotes", headers=headers).json() == []
 
 
+def test_quote_pdf_matches_dte_layout() -> None:
+    import fitz
+
+    api = client()
+    headers = quote_headers(api)
+    created = api.post("/api/quotes", headers=headers, json={
+        "number": "3995",
+        "documentId": "12.345.678-9",
+        "clientName": "Cliente Demo",
+        "clientPhone": "912345678",
+        "notes": "Incluye materiales",
+        "lines": [
+            {
+                "itemId": "residential-traffic",
+                "name": "Trafico residencial",
+                "unitLabel": "x mt2",
+                "quantity": 10,
+                "unitPrice": 12500,
+                "custom": False,
+            },
+        ],
+    })
+    assert created.status_code == 200
+    quote_id = created.json()["id"]
+    pdf = api.get(f"/api/quotes/{quote_id}/pdf", headers=headers)
+    assert pdf.status_code == 200
+    assert pdf.content.startswith(b"%PDF")
+    document = fitz.open(stream=pdf.content, filetype="pdf")
+    text = document[0].get_text()
+    assert "PRESUPUESTO" in text
+    assert "Datos del Receptor" in text
+    assert "Cliente Demo" in text
+    assert "IVA" in text and "19%" in text
+    assert "SUBTOTAL" in text
+    assert "Observaciones:" in text
+    assert "Trafico residencial" in text
+    assert "Documento comercial" in text
+    assert api.get(f"/api/quotes/{quote_id}/pdf", headers=lead_headers(api)).status_code == 403
+
+
 def test_admin_site_can_call_the_login_preflight() -> None:
     api = client()
     response = api.options(

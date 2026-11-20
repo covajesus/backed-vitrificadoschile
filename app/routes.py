@@ -29,6 +29,7 @@ from app.domain import (
     work_error,
 )
 from app.notice_pdf import contract_pdf, money, palmeta_change_pdf, period_label, settlement_pdf
+from app.quote_pdf import quote_pdf
 from app.whatsapp import clean_phone, format_assignment_partidas, format_partida_changes, notify_palmeta_change, notify_ride_transfer, notify_scope_request, notify_successful_mark, notify_updated_scope, notify_work_contract, notify_worker_assignment
 from app.geocoding import AddressNotFound, locate_address, shorten_address, suggest_addresses
 from app.models import (
@@ -3013,6 +3014,38 @@ def delete_quote(
     row.deleted_at = utcnow()
     db.commit()
     return {"ok": True}
+
+
+@router.get("/quotes/{quote_id}/pdf")
+def download_quote_pdf(
+    quote_id: int,
+    _: AccountRow = Depends(require_quote_access),
+    db: Session = Depends(get_db),
+) -> Response:
+    row = db.get(QuoteRow, quote_id)
+    if row is None or row.deleted_at is not None:
+        fail(404, "El presupuesto no existe.")
+    lines = quote_lines_for(db, row.id)
+    data = quote_pdf(
+        number=str(row.number),
+        document_id=row.document_id,
+        client_name=row.client_name,
+        client_phone=row.client_phone,
+        notes=row.notes or "",
+        lines=[
+            (line.name, line.unit_label or "", float(line.quantity), int(line.unit_price), int(line.line_total))
+            for line in lines
+        ],
+        subtotal=int(row.subtotal),
+        tax=int(row.tax),
+        total=int(row.total),
+        issued_at=row.created_at,
+    )
+    return Response(
+        content=data,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="presupuesto-{row.number}.pdf"'},
+    )
 
 
 @router.get("/whatsapp/webhook")
