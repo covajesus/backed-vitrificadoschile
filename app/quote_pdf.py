@@ -42,7 +42,7 @@ VALIDITY_DAYS = 10
 # Columnas tabla (x derecho de cada borde vertical)
 COL_X = (18.0, 70.0, 385.0, 437.0, 489.0, 541.0, 594.0)
 TABLE_TOP = 232.0
-TABLE_BOTTOM = 620.0
+TABLE_BOTTOM = 590.0
 HEADER_H = 15.0
 ROW_H = 15.0
 
@@ -374,7 +374,7 @@ def draw_totals(
     total: int,
 ) -> None:
     # Caja inferior: terminos justificados a la izquierda, totales a la derecha
-    box_top, box_bottom = 632.0, 753.0
+    box_top, box_bottom = 602.0, 753.0
     c.setStrokeColor(black)
     c.setLineWidth(0.9)
     c.rect(LEFT, top_y(box_bottom), CONTENT_W, box_bottom - box_top, stroke=1, fill=0)
@@ -404,30 +404,30 @@ def draw_totals(
     title_style = ParagraphStyle(
         "QuoteTermsTitle",
         fontName=font_name(True),
-        fontSize=7,
-        leading=9,
+        fontSize=9.5,
+        leading=12,
         textColor=black,
         alignment=TA_LEFT,
     )
     body_style = ParagraphStyle(
         "QuoteTermsBody",
         fontName=font_name(False),
-        fontSize=5.5,
-        leading=7.0,
+        fontSize=7.5,
+        leading=9.5,
         textColor=black,
         alignment=TA_JUSTIFY,
-        leftIndent=10,
+        leftIndent=12,
         bulletIndent=0,
         bulletFontName=font_name(False),
-        bulletFontSize=5.5,
+        bulletFontSize=7.5,
     )
 
     terms_width = 348.0
-    cursor_top = 644.0
+    cursor_top = 614.0
     title_para = Paragraph(_para_escape(TERMS_TITLE), title_style)
     title_w, title_h = title_para.wrap(terms_width, 40)
-    title_para.drawOn(c, 26.0, top_y(cursor_top) - title_h + 7)
-    cursor_top += title_h + 3
+    title_para.drawOn(c, 26.0, top_y(cursor_top) - title_h + 9.5)
+    cursor_top += title_h + 4
 
     for item in items:
         if cursor_top > 748:
@@ -435,17 +435,17 @@ def draw_totals(
         # Viñeta + texto justificado por cada punto
         bullet_html = f"• {_para_escape(item)}"
         item_para = Paragraph(bullet_html, body_style)
-        max_h = max(14.0, 750.0 - cursor_top)
+        max_h = max(16.0, 750.0 - cursor_top)
         _w, item_h = item_para.wrap(terms_width, max_h)
-        item_para.drawOn(c, 26.0, top_y(cursor_top) - item_h + 5.5)
-        cursor_top += item_h + 2.5
+        item_para.drawOn(c, 26.0, top_y(cursor_top) - item_h + 7.5)
+        cursor_top += item_h + 3.0
 
     rows = (
-        ("SUBTOTAL", "(=)", money_clp(subtotal), 658.0),
-        ("NETO", "(=)", money_clp(subtotal), 676.0),
-        ("IVA (19%)", "(+)", money_clp(tax), 694.0),
-        ("EXENTO", "(+)", money_clp(0), 712.0),
-        ("TOTAL", "(=)", money_clp(total), 734.0),
+        ("SUBTOTAL", "(=)", money_clp(subtotal), 640.0),
+        ("NETO", "(=)", money_clp(subtotal), 662.0),
+        ("IVA (19%)", "(+)", money_clp(tax), 684.0),
+        ("EXENTO", "(+)", money_clp(0), 706.0),
+        ("TOTAL", "(=)", money_clp(total), 732.0),
     )
     for label, op, value, y in rows:
         c.setFont(font_name(True), 7.5)
