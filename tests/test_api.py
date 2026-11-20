@@ -150,10 +150,7 @@ def test_quote_pdf_matches_dte_layout() -> None:
         "documentId": "12.345.678-9",
         "clientName": "Cliente Demo",
         "clientPhone": "912345678",
-        "notes": (
-            "TÉRMINOS Y CONDICIONES\n"
-            "Este presupuesto incluye 3 capas vitrificado Berger-Seidle."
-        ),
+        "notes": "Este presupuesto incluye 3 capas vitrificado Berger-Seidle.",
         "lines": [
             {
                 "itemId": "residential-traffic",

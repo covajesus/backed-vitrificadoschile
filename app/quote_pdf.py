@@ -11,10 +11,13 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw
 from reportlab.lib.colors import Color, black, white
+from reportlab.lib.enums import TA_JUSTIFY, TA_LEFT
 from reportlab.lib.pagesizes import letter
+from reportlab.lib.styles import ParagraphStyle
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfgen import canvas
+from reportlab.platypus import Paragraph
 
 PAGE_W, PAGE_H = letter  # 612 x 792 (modelo aprobado)
 LEFT = 18.0
@@ -43,8 +46,8 @@ TABLE_BOTTOM = 620.0
 HEADER_H = 15.0
 ROW_H = 15.0
 
+TERMS_TITLE = "TÉRMINOS Y CONDICIONES"
 DEFAULT_TERMS = (
-    "TÉRMINOS Y CONDICIONES\n"
     "Este presupuesto incluye 3 capas vitrificado base al agua marca alemana "
     "Berger-Seidle de secado rapido. No se realizan retiros de aserrin, "
     "excedentes de material ni escombros. Forma de pago: 50% al comenzar los "
@@ -353,6 +356,15 @@ def draw_products_table(
     return table_bottom
 
 
+def _para_escape(value: str) -> str:
+    return (
+        value.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace("\n", "<br/>")
+    )
+
+
 def draw_totals(
     c: canvas.Canvas,
     *,
@@ -361,7 +373,7 @@ def draw_totals(
     tax: int,
     total: int,
 ) -> None:
-    # Caja inferior: terminos (desde el formulario) a la izquierda, totales a la derecha
+    # Caja inferior: terminos justificados a la izquierda, totales a la derecha
     box_top, box_bottom = 632.0, 753.0
     c.setStrokeColor(black)
     c.setLineWidth(0.9)
@@ -369,20 +381,42 @@ def draw_totals(
     c.setLineWidth(0.8)
     c.line(385.0, top_y(box_bottom), 385.0, top_y(box_top))
 
-    text = (terms or "").strip() or DEFAULT_TERMS
-    paragraphs = [part.strip() for part in text.replace("\r\n", "\n").split("\n") if part.strip()]
-    terms_y = 644.0
-    for index, paragraph in enumerate(paragraphs):
-        bold = index == 0
-        size = 7 if bold else 5.5
-        c.setFillColor(black)
-        c.setFont(font_name(bold), size)
-        for line in wrap_text(paragraph, 348, size, bold, max_lines=12):
-            if terms_y > 748:
-                break
-            c.drawString(26.0, top_y(terms_y), line)
-            terms_y += 7.0 if bold else 6.8
-        terms_y += 2
+    raw = (terms or "").strip() or DEFAULT_TERMS
+    # Si alguien pegó el titulo en el texto, no lo duplicamos
+    body = raw
+    upper = raw.upper().replace("É", "E")
+    if upper.startswith("TERMINOS Y CONDICIONES"):
+        parts = raw.split("\n", 1)
+        body = (parts[1] if len(parts) > 1 else "").strip() or DEFAULT_TERMS
+
+    title_style = ParagraphStyle(
+        "QuoteTermsTitle",
+        fontName=font_name(True),
+        fontSize=7,
+        leading=9,
+        textColor=black,
+        alignment=TA_LEFT,
+    )
+    body_style = ParagraphStyle(
+        "QuoteTermsBody",
+        fontName=font_name(False),
+        fontSize=5.5,
+        leading=7.2,
+        textColor=black,
+        alignment=TA_JUSTIFY,
+    )
+
+    terms_width = 348.0
+    cursor_top = 644.0
+    title_para = Paragraph(_para_escape(TERMS_TITLE), title_style)
+    title_w, title_h = title_para.wrap(terms_width, 40)
+    title_para.drawOn(c, 26.0, top_y(cursor_top) - title_h + 7)
+    cursor_top += title_h + 4
+
+    body_para = Paragraph(_para_escape(body.replace("\n", " ")), body_style)
+    max_h = max(20.0, 750.0 - cursor_top)
+    body_w, body_h = body_para.wrap(terms_width, max_h)
+    body_para.drawOn(c, 26.0, top_y(cursor_top) - body_h + 5.5)
 
     rows = (
         ("SUBTOTAL", "(=)", money_clp(subtotal), 658.0),
